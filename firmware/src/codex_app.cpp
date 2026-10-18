@@ -11,6 +11,7 @@
 #include "app_shell.h"
 #include "wifi_settings.h"
 #include "clock_app.h"
+#include "video_app.h"
 #include "usb_packets.h"
 #include "config.h"
 namespace CodexApp {
@@ -72,6 +73,7 @@ void serialTick(uint32_t now) {
         hubConsole().println(isCalibrated()?"TOUCH_CALIBRATED":"TOUCH_ERROR save_failed");continue;
       }
       if(serialLine=="HUB_TOUCH_STATUS") {printShellTouchStatus();serialLine="";continue;}
+      if(serialLine=="HUB_VIDEO_STATUS") {VideoApp::printStatus();serialLine="";continue;}
       if(serialLine.startsWith("HUB_SHELL_GESTURE ")) {
         int x0,y0,x1,y1;
         if(sscanf(serialLine.c_str(),"HUB_SHELL_GESTURE %d %d %d %d",&x0,&y0,&x1,&y1)==4)injectShellGesture(x0,y0,x1,y1);

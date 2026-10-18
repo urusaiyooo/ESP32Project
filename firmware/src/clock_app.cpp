@@ -3,6 +3,7 @@
 #include "app_shell.h"
 #include "font_fallback.h"
 #include "clock_art.h"
+#include "video_app.h"
 #include <ArduinoJson.h>
 #include <time.h>
 #include <sys/time.h>
@@ -61,10 +62,10 @@ void icon(int x,int y,int code) {
 }
 void quotaCard(int x,const char* title,const Window& w,time_t epoch) {
   auto& d=sharedDisplay;
-  d.fillRoundRect(x,207,148,82,9,bg);
-  d.drawRoundRect(x,207,148,82,9,line);
+  d.fillRoundRect(x,221,148,85,9,bg);
+  d.drawRoundRect(x,221,148,85,9,line);
   const int center=x+74;
-  centeredText(title,center,215);
+  centeredText(title,center,229);
   const bool fresh=current(w,epoch);
   const uint16_t c=fresh?ink:muted;
   const String percent=w.present?String(w.remaining,0)+"%":"--";
@@ -74,8 +75,8 @@ void quotaCard(int x,const char* title,const Window& w,time_t epoch) {
   const int percentWidth=d.textWidth(percent);
   const int start=center-(percentWidth+8+labelWidth)/2;
   d.setTextDatum(lgfx::textdatum_t::top_left);d.setTextColor(c,bg);
-  d.drawString(percent,start,236);
-  text(label,start+percentWidth+8,242,c);
+  d.drawString(percent,start,250);
+  text(label,start+percentWidth+8,256,c);
   char date[20]="--",at[20]="--";
   if(w.reset&&validTime(w.reset)) {
     tm local{};time_t t=w.reset;localtime_r(&t,&local);
@@ -88,28 +89,28 @@ void quotaCard(int x,const char* title,const Window& w,time_t epoch) {
   constexpr int resetGap=14;
   const int resetStart=center-(resetWidth+resetGap+dateWidth)/2;
   const int dateStart=resetStart+resetWidth+resetGap;
-  text("重置",resetStart,267,c);
-  tiny(date,dateStart,265,c);
+  text("重置",resetStart,281,c);
+  tiny(date,dateStart,279,c);
   // Date and clock share the right column; the label cannot overlap either row.
-  centeredTiny(at,dateStart+dateWidth/2,279,c);
+  centeredTiny(at,dateStart+dateWidth/2,293,c);
 }
 void drawData(time_t epoch){auto& d=sharedDisplay;bool wf=weatherFresh(epoch),bf=wbFresh(epoch);
- d.fillRoundRect(12,145,456,54,9,bg);d.drawRoundRect(12,145,456,54,9,line);
+ d.fillRoundRect(12,153,456,60,9,bg);d.drawRoundRect(12,153,456,60,9,line);
  // Four equal 114-pixel columns; each label/value group has its own center.
  const int centers[]={69,183,297,411};
- text("今日",centers[0]-34,153,wf?ink:muted);icon(centers[0]+20,161,wf?today:-1);
- text("明日",centers[1]-34,153,wf?ink:muted);icon(centers[1]+20,161,wf&&tomorrowDate>epoch&&tomorrowDate-epoch<=86400?tomorrow:-1);
- centeredText("温度:"+(wf?String(temperature,0)+"°C":"--"),centers[2],153,wf?ink:muted);
- centeredText("湿度:"+(wf?String(humidity,0)+"%":"--"),centers[3],153,wf?ink:muted);
+ text("今日",centers[0]-34,161,wf?ink:muted);icon(centers[0]+20,169,wf?today:-1);
+ text("明日",centers[1]-34,161,wf?ink:muted);icon(centers[1]+20,169,wf&&tomorrowDate>epoch&&tomorrowDate-epoch<=86400?tomorrow:-1);
+ centeredText("温度:"+(wf?String(temperature,0)+"°C":"--"),centers[2],161,wf?ink:muted);
+ centeredText("湿度:"+(wf?String(humidity,0)+"%":"--"),centers[3],161,wf?ink:muted);
  bool af=wf&&aqi>=0&&aqiAt&&epoch>=aqiAt&&epoch-aqiAt<10800;
  String quality=aqi<=50?"优":aqi<=100?"良":aqi<=150?"敏感":aqi<=200?"不健康":aqi<=300?"很差":"危险";
  // Two equal halves, one shared baseline for location and air quality.
- centeredText("北京大兴",126,180,muted);
- centeredText(af?"空气:"+quality+" "+String(aqi)+" US":"空气:待更新",354,180,af?ink:muted);
+ centeredText("北京大兴",126,188,muted);
+ centeredText(af?"空气:"+quality+" "+String(aqi)+" US":"空气:待更新",354,188,af?ink:muted);
  quotaCard(12,"Codex 5小时",five,epoch);quotaCard(166,"Codex 每周",week,epoch);
- d.fillRoundRect(320,207,148,82,9,bg);d.drawRoundRect(320,207,148,82,9,line);centeredText("WorkBuddy",394,215);centeredText("账号池积分",394,237,bf?ink:muted);
- d.setFont(&lgfx::fonts::Font4);d.setTextSize(.8);d.setTextColor(bf?ink:muted,bg);d.setTextDatum(lgfx::textdatum_t::top_center);d.drawString(wbAt?String(wbRemaining,0)+"/"+String(wbTotal,0):"--/--",394,260);
- d.fillRect(8,295,388,18,bg);}
+ d.fillRoundRect(320,221,148,85,9,bg);d.drawRoundRect(320,221,148,85,9,line);centeredText("WorkBuddy",394,229);centeredText("账号池积分",394,251,bf?ink:muted);
+ d.setFont(&lgfx::fonts::Font4);d.setTextSize(.8);d.setTextColor(bf?ink:muted,bg);d.setTextDatum(lgfx::textdatum_t::top_center);d.drawString(wbAt?String(wbRemaining,0)+"/"+String(wbTotal,0):"--/--",394,274);
+}
 void drawDigits(time_t epoch){tm local{};char value[12]="--:--:--";if(validTime(epoch)){localtime_r(&epoch,&local);strftime(value,sizeof(value),"%H:%M:%S",&local);}
  if(timeBuffer){digits.fillSprite(bg);digits.drawJpg(clockArt,sizeof(clockArt),0,0);digits.setFont(&lgfx::fonts::Font7);digits.setTextSize(1.2);digits.setTextColor(ink);digits.setTextDatum(lgfx::textdatum_t::top_center);digits.drawString(value,237,20);digits.pushSprite(3,33);}
  const int day=validTime(epoch)?local.tm_year*400+local.tm_yday:-2;if(day!=drawnDay){sharedDisplay.fillRect(8,8,228,20,bg);const char* days[]={"日","一","二","三","四","五","六"};char date[40];snprintf(date,sizeof(date),"%04d-%02d-%02d 星期%s",local.tm_year+1900,local.tm_mon+1,local.tm_mday,days[local.tm_wday]);text(validTime(epoch)?String(date):"等待校时",10,9);drawnDay=day;}drawnSecond=epoch;}
@@ -117,8 +118,8 @@ void drawTicker(){if(!ticker.width())return;ticker.fillSprite(bg);String title=s
 bool parseWindow(JsonVariantConst source,Window& out){if(source.isNull()){out=Window{};return true;}if(!source.is<JsonObjectConst>()||!source["remaining"].is<float>())return false;float v=source["remaining"].as<float>();if(!isfinite(v)||v<0||v>100)return false;uint32_t reset=source["reset"]|0U;if(reset&&!validTime(reset))return false;out.present=true;out.remaining=v;out.reset=reset;return true;}
 }
 void begin(){configTzTime("CST-8","ntp.aliyun.com","time.cloudflare.com","pool.ntp.org");}
-void enter(){auto& d=sharedDisplay;d.fillScreen(bg);text("正在播放:",241,9);d.fillRoundRect(400,284,72,30,5,0xe71c);d.setFont(&lgfx::fonts::efontCN_16);d.setTextSize(1);d.setTextDatum(lgfx::textdatum_t::top_center);d.setTextColor(ink);d.drawString("应用",436,291);d.setTextDatum(lgfx::textdatum_t::top_left);digits.setColorDepth(16);digits.setPsram(true);timeBuffer=digits.createSprite(474,106)!=nullptr;ticker.setColorDepth(16);ticker.setPsram(true);ticker.createSprite(142,18);drawnSecond=-1;drawnDay=-1;drawnActivity="";dirty=true;tick(true);}
-void leave(){digits.deleteSprite();ticker.deleteSprite();timeBuffer=false;}
+void enter(){auto& d=sharedDisplay;d.fillScreen(bg);text("正在播放:",241,9);d.setTextDatum(lgfx::textdatum_t::top_left);digits.setColorDepth(16);digits.setPsram(true);timeBuffer=digits.createSprite(474,106)!=nullptr;ticker.setColorDepth(16);ticker.setPsram(true);ticker.createSprite(142,18);drawnSecond=-1;drawnDay=-1;drawnActivity="";dirty=true;tick(true);}
+void leave(){VideoApp::stop();digits.deleteSprite();ticker.deleteSprite();timeBuffer=false;}
 void tick(bool foreground){if(!foreground)return;sharedDisplay.setClipRect(6,6,468,308);time_t t=time(nullptr);if(t!=drawnSecond)drawDigits(t);int health=freshness(t)+(weatherFresh(t)?4:0)+(wbFresh(t)?8:0)+(dashboardFresh()?16:0);if(dirty||health!=drawnHealth){drawData(t);dirty=false;drawnHealth=health;}if(millis()-lastMarquee>=60){lastMarquee=millis();drawTicker();}sharedDisplay.clearClipRect();border();}
 bool update(const String& json){if(json.length()>480)return false;JsonDocument doc;if(deserializeJson(doc,json)||!doc["epoch"].is<uint32_t>()||!doc["available"].is<bool>()||!doc["quota_at"].is<uint32_t>())return false;uint32_t epoch=doc["epoch"],at=doc["quota_at"];if(!validTime(epoch)||at>epoch+5||(at&&!validTime(at)))return false;Window f,w;if(!parseWindow(doc["five"],f)||!parseWindow(doc["week"],w))return false;if(doc["available"].as<bool>()&&(!at||(!f.present&&!w.present)))return false;timeval now{static_cast<time_t>(epoch),0};settimeofday(&now,nullptr);five=f;week=w;quotaAt=at;available=doc["available"];dirty=true;++revision;return true;}
 bool updateDashboard(const uint8_t* data,size_t length){JsonDocument d;if(deserializeJson(d,data,length))return false;String state=d["activity"]["state"]|"idle";if(state!="running"&&state!="complete"&&state!="idle")return false;String newSong=d["music"]["title"]|"";if(newSong!=song){song=newSong.substring(0,512);scroll=0;}activity=state;dashboardAt=millis();JsonVariantConst w=d["weather"];JsonVariantConst b=d["workbuddy"];String signature;serializeJson(w,signature);serializeJson(b,signature);if(signature!=dataSignature){dirty=true;dataSignature=signature;}weatherOk=w["available"]|false;weatherAt=w["at"]|0U;today=w["today"]|-1;tomorrow=w["tomorrow"]|-1;tomorrowDate=w["tomorrow_date"]|0U;temperature=w["temperature"]|0.f;humidity=w["humidity"]|0.f;aqi=w["aqi"].isNull()?-1:w["aqi"].as<int>();aqiAt=w["aqi_at"]|0U;wbOk=b["available"]|false;wbAt=b["at"]|0U;wbRemaining=b["remaining"]|0.f;wbTotal=b["total"]|0.f;return true;}

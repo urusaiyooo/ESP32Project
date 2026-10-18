@@ -1,0 +1,5 @@
+# Preserve release checksum bytes across Windows/Linux checkouts.
+* -text
+*.bin binary
+*.png binary
+*.gz binary

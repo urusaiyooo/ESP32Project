@@ -1,0 +1,31 @@
+# Generated builds and distributions
+.pio/
+**/.pio/
+**/bin/
+**/obj/
+**/__pycache__/
+*.pyc
+.venv/
+.vs/
+**/payload/
+**/payload.zip
+release/
+dist/
+build/
+*.spec
+*.exe
+*.pdb
+*.zip
+# Private state and credentials
+.env
+.env.*
+!.env.example
+runtime/
+runtime-clock/
+backups/
+auths/
+auth.json
+config.json
+*.db
+*.sqlite*
+*.log

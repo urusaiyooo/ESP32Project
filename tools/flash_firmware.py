@@ -17,13 +17,28 @@ def validate(folder):
     folder=Path(folder).resolve();manifest=json.loads((folder/'manifest.json').read_text(encoding='utf-8-sig'))
     if manifest.get('chip')!='esp32s3' or manifest.get('flash_size')!='16MB':raise ValueError('Only ESP32-S3 16MB images are supported')
     images=manifest.get('images',[])
-    if len(images)!=4 or {x['name']:x['address'] for x in images}!=EXPECTED:raise ValueError('Invalid flash layout')
+    layout={x['name']:x['address'] for x in images}
+    video='video.bin' in layout
+    expected={**EXPECTED,**({'video.bin':0x650000} if video else {})}
+    if len(images)!=len(expected) or layout!=expected:raise ValueError('Invalid flash layout')
     verified=[]
     for entry in images:
         path=folder/entry['name'];data=path.read_bytes()
         if len(data)!=entry['bytes'] or hashlib.sha256(data).hexdigest()!=entry['sha256']:raise ValueError('Checksum failed: '+path.name)
         if path.name in ('bootloader.bin','firmware.bin') and (len(data)<24 or data[0]!=0xe9 or struct.unpack_from('<H',data,12)[0]!=9):raise ValueError('Image is not ESP32-S3: '+path.name)
         verified.append((entry['address'],path))
+    if video:
+        from pack_video import validate as validate_video
+        validate_video((folder/'video.bin').read_bytes())
+        partitions={}
+        raw=(folder/'partitions.bin').read_bytes()
+        for offset in range(0,len(raw)-31,32):
+            magic,kind,subtype,address,length,label,flags=struct.unpack_from('<HBBII16sI',raw,offset)
+            if magic!=0x50aa:break
+            partitions[label.rstrip(b'\0').decode('ascii')]=(kind,subtype,address,length)
+        required={'nvs':(1,2,0x9000,0x5000),'otadata':(1,0,0xe000,0x2000),'app0':(0,0x10,0x10000,0x640000),'video':(0x40,0,0x650000,0x9a0000),'coredump':(1,3,0xff0000,0x10000)}
+        if partitions!=required:raise ValueError('Video partition table mismatch')
+        if (folder/'firmware.bin').stat().st_size>0x640000:raise ValueError('Application exceeds partition')
     return manifest,sorted(verified)
 
 def choose_port(explicit=None):
@@ -100,7 +115,7 @@ def main(argv=None):
         for p in list_ports.comports():print(f'{p.device}: {p.description}')
         return 0
     manifest,images=validate(args.firmware_dir or default_folder())
-    print('Validated firmware:',manifest['version'],'(ESP32-S3, 16MB, four SHA256 checks passed)')
+    print('Validated firmware:',manifest['version'],f'(ESP32-S3, 16MB, {len(images)} SHA256 checks passed)')
     if args.check:return 0
     port=choose_port(args.port);stopped=False
     try:

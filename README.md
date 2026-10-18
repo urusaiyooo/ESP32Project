@@ -1,7 +1,8 @@
 # DeskHub S3 — 桌面时钟与音乐屏
 
-基于 **ESP32-S3 N16R8 + ILI9488 3.5 英寸触摸屏** 的桌面信息终端。固件 **v1.4.4**，支持 Windows 10/11 x64。
+基于 **ESP32-S3 N16R8 + ILI9488 3.5 英寸触摸屏** 的桌面信息终端。固件 **v1.4.6**，支持 Windows 10/11 x64。
 
+- 点击左侧人物播放完整视频彩蛋，点击画面退出，播完返回时钟。详见 [视频说明](docs/VIDEO.md)。
 - 开机显示白底时钟：24 小时制时分秒、年月日、星期与人物背景。
 - 固定“正在播放”标签，当前歌曲名在设备上滚动。
 - 今日/明日天气图标、当前温湿度和空气质量，默认北京市大兴区。
@@ -16,11 +17,11 @@
 ## 快速开始
 
 1. 按 [接线说明](docs/HARDWARE.md) 连接屏幕，确认供电与共地。
-2. 下载 Release 的 `DeskHub-Windows-1.4.4.zip`，完整解压。**不要在压缩包内运行**。
+2. 下载 [DeskHub-Firmware-1.4.6.zip](https://github.com/urusaiyooo/ESP32Project/releases/download/v1.4.6/DeskHub-Firmware-1.4.6.zip) 刷视频版固件；首次安装电脑后台另下载 [DeskHub-Windows-1.4.4.zip](https://github.com/urusaiyooo/ESP32Project/releases/download/ESP32/DeskHub-Windows-1.4.4.zip) 并运行其中的 Install.cmd。电脑后台无需升级；不要用旧包的刷机工具覆盖新版固件。**不要在压缩包内运行**。
 3. 若设备管理器没有 CH340 串口，先运行 `Install-CH340-Driver.cmd`。使用原生 USB CDC 通常不需要 CH340 驱动。
-4. 插入 S3 USB **数据线**，双击 `Flash-Firmware.cmd`；多个串口时选择开发板端口。
+4. 插入 S3 USB **数据线**，运行固件 1.4.6 升级包中的 `Flash-Firmware.cmd`；多个串口时选择开发板端口。
 5. 初次使用运行 `Calibrate-Touch.cmd`，依次按稳四角十字并松开。
-6. 双击 `Install.cmd`，在安装器点击“安装并开机自动运行”。
+6. 首次安装时运行 Windows 1.4.4 使用包中的 `Install.cmd`，点击“安装并开机自动运行”；已安装后台则跳过。
 7. 保持 QQ 音乐播放即可同步歌曲；Codex 未登录时在安装器点击“登录 Codex”；WorkBuddy 积分需本机面板运行。
 
 **普通使用无需另外安装 Python、.NET SDK、PlatformIO、Node.js。** 安装包和刷机工具已带运行环境；CH340 离线驱动随 Windows 使用包提供。开发者依赖另见 [开发说明](docs/DEVELOPMENT.md)。
@@ -33,14 +34,16 @@
 | [接线说明](docs/HARDWARE.md) | GPIO、供电、USB 接口、触摸轮询 |
 | [刷机与校准](docs/FLASHING.md) | 一键刷机、命令行、校准、失败处理 |
 | [开发说明](docs/DEVELOPMENT.md) | 依赖安装、编译固件、生成安装包、测试 |
+| [视频彩蛋](docs/VIDEO.md) | 点击入口、完整视频转换、分区布局与烧录 |
+| [v1.4.6 验证结果](docs/VALIDATION-1.4.6.md) | 完整 110 秒播放、帧率及菜单回归验证 |
 | [GitHub 发布指南](docs/PUBLISHING.md) | 建仓库、提交源码、上传 Release 附件 |
-| [版本说明](CHANGELOG.md) | v1.4.4 功能与验证范围 |
+| [版本说明](CHANGELOG.md) | 当前版本变化及历史修复 |
 
 ## 目录
 
 ```text
 firmware/                  S3 固件源码与 PlatformIO 配置
-prebuilt/firmware-s3/       已验证的四段固件与 SHA256 manifest
+prebuilt/firmware-s3/       已验证的五段镜像（含完整视频）及 SHA256 manifest
 desktop-usb/worker/         统一 USB 数据后台
 desktop-usb/MediaCollector/ Windows 音乐信息采集器
 desktop-usb/Installer/      每用户安装器与登录自启

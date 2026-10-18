@@ -12,6 +12,6 @@ try {
  if ($LASTEXITCODE -ne 0) {throw 'Payload packaging failed. Set DESKHUB_CODEX_EXE to native codex.exe.'}
  & dotnet publish desktop-usb/Installer/DeskHubSetup.csproj -c Release -o release/desktop-usb
  if ($LASTEXITCODE -ne 0) {throw 'Installer build failed.'}
- & $taskPython -m PyInstaller --noconfirm --onefile --name DeskHubFlash --collect-all esptool --distpath release/flasher tools/flash_firmware.py
+ & $taskPython -m PyInstaller --noconfirm --onefile --name DeskHubFlash --collect-all esptool --paths tools --distpath release/flasher tools/flash_firmware.py
  if ($LASTEXITCODE -ne 0) {throw 'Flasher build failed.'}
 } finally {Pop-Location}

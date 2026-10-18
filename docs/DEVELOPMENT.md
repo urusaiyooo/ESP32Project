@@ -14,7 +14,7 @@ Git 仅在用命令行提交 GitHub 时需要；可以使用 GitHub 网页上传
 .\Build-Firmware.cmd
 ```
 
-配置：`firmware/platformio.ini`，固定 PlatformIO espressif32 7.0.0、Arduino-ESP32 2.0.17、LovyanGFX 1.2.7、ArduinoJson 7.4.2。首次构建自动下载工具链与库。新四段镜像写入 `prebuilt/firmware-s3`，并生成 manifest 与 SHA256。
+配置：`firmware/platformio.ini`，固定 PlatformIO espressif32 7.0.0、Arduino-ESP32 2.0.17、LovyanGFX 1.2.7、ArduinoJson 7.4.2。首次构建自动下载工具链与库。新五段镜像写入 `prebuilt/firmware-s3`，并生成 manifest 与 SHA256。
 
 ## 编译 Windows 程序与刷机工具
 
@@ -43,3 +43,5 @@ Codex CLI 源码/发布包：[openai/codex](https://github.com/openai/codex)。�
 构建输出放在 `%TEMP%/DeskHub-S3-GitHub-build`，避免 ESP32 GCC 8 对中文项目路径的链接问题。若 Windows 用户名也包含非 ASCII 字符，可将 TEMP 指向英文目录后重试。此发布包的开发脚本针对 Windows，其他系统构建流程未验收。
 
 重打包发布文件：准备好与源码同级的 DeskHub-Windows-1.4.4 使用目录（安装器、刷机工具、firmware、drivers 和 docs），运行 `python tools/package_public_release.py`。输出源码 ZIP、Windows ZIP 和附件 SHA256SUMS。脚本会排除构建缓存、凭证、日志、数据库和旧备份。
+
+视频版分区、完整素材转换和打包见 docs/VIDEO.md。发布源码可运行 python tools/package_public_release.py；同时发布固件升级包时加 --firmware-dir 指定包含 DeskHubFlash.exe 和 firmware/ 的目录。文件名自动采用固件版本，拒绝源码与升级包版本不一致。

@@ -2,9 +2,9 @@
 
 ## 推荐：Windows 使用包
 
-完整解压 `DeskHub-Windows-1.4.4.zip`，插入 S3 数据线，双击 `Flash-Firmware.cmd`。工具包含 Python/esptool 运行环境，会：
+完整解压 `DeskHub-Firmware-1.4.6.zip`，插入 S3 数据线，双击 `Flash-Firmware.cmd`。工具包含 Python/esptool 运行环境，会：
 
-1. 校验四段固件长度与 SHA256、芯片类型标记和固定写入地址。
+1. 校验五段镜像长度与 SHA256、芯片标记、固定分区布局及视频 CRC/索引。
 2. 自动寻找串口；多个候选时显示列表供选择。
 3. 临时停止本项目后台，读取 ESP32-S3 型号及 Flash 容量，确认 16MB 后才写入。
 4. 烧录、校验并重启；恢复此前运行的后台。
@@ -19,6 +19,7 @@
 | partitions.bin | 0x00008000 |
 | boot_app0.bin | 0x0000E000 |
 | firmware.bin | 0x00010000 |
+| video.bin | 0x00650000 |
 
 目标 `esp32s3`，Flash 16MB；烧录 DIO / 80MHz，运行内存配置 qio_opi、8MB OPI PSRAM。LCD SPI 为 40MHz，与 Flash 时钟是不同参数。本包不适用于 ESP-WROOM-32。
 
@@ -53,3 +54,5 @@
 - 触摸偏移：重新校准；触摸完全无响应时核对 TCK16/TCS15/TDI17/TDO18 和共地。
 
 官方参数参考：[Espressif esptool ESP32-S3 文档](https://docs.espressif.com/projects/esptool/en/latest/esp32s3/esptool/basic-commands.html)。
+
+视频版取消双分区 OTA 和 SPIFFS，采用专用原始视频分区。旧四镜像刷机程序不适用，详见 [视频说明](VIDEO.md)。

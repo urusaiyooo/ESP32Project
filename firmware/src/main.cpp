@@ -9,6 +9,7 @@
 #include "config.h"
 #include "wifi_settings.h"
 #include "clock_app.h"
+#include "video_app.h"
 #include "usb_packets.h"
 #include <ArduinoJson.h>
 #include "progressive_cover.h"
@@ -110,12 +111,26 @@ void selectApp(AppId next) {
 void dispatchGesture(int x,int y,int dx,int dy,uint32_t held) {
   const bool tap=abs(dx)<10 && abs(dy)<10;
   if(activeApp==AppId::Wifi) {WifiSettings::gesture(x,y,dx,dy);return;}
-  // The edge button accepts light finger movement and a padded touch target.
-  const int appLeft=activeApp==AppId::Clock ? 384 : 400;
-  const int appTop=activeApp==AppId::Clock ? 272 : 281;
   const bool buttonTap=abs(dx)<=28 && abs(dy)<=28;
-  if (activeApp!=AppId::Home && buttonTap && downX>=appLeft && downY>=appTop &&
-      downX<480 && downY<320 && x>=appLeft && y>=appTop && x<480 && y<320) {
+  // Invisible target over the central time digits; no extra rendering layer.
+  if (activeApp==AppId::Clock) {
+    if (VideoApp::playing()) {
+      if(buttonTap){VideoApp::stop();ClockApp::enter();}
+      return;
+    }
+    if (buttonTap && downX>=6 && downX<150 && downY>=33 && downY<139 &&
+        x>=6 && x<150 && y>=33 && y<139) {
+      ClockApp::leave();
+      if(!VideoApp::start())ClockApp::enter();
+      return;
+    }
+    if (buttonTap && downX>=120 && downX<360 && downY>=40 && downY<136 &&
+        x>=120 && x<360 && y>=40 && y<136) selectApp(AppId::Home);
+    return;
+  }
+  // Other apps retain their existing lower-right Home button.
+  if (activeApp!=AppId::Home && buttonTap && downX>=400 && downY>=281 &&
+      downX<480 && downY<320 && x>=400 && y>=281 && x<480 && y<320) {
     selectApp(AppId::Home); return;
   }
   if (activeApp==AppId::Home && tap && held<700) {
@@ -243,6 +258,7 @@ void printUsbAppStatus() {
 }
 void stopMusicServer() { api.stop(); }
 void requestAppByName(const String& name) {
+  if(VideoApp::playing()){VideoApp::stop();if(activeApp==AppId::Clock)ClockApp::enter();}
   if (name=="clock") selectApp(AppId::Clock);
   else if (name=="home") selectApp(AppId::Home);
   else if (name=="music") selectApp(AppId::Music);
@@ -251,6 +267,7 @@ void requestAppByName(const String& name) {
 }
 void setup() {
   CodexApp::setup();
+  VideoApp::begin();
   // Startup calibration is optional; BOOT and serial still work without it.
   ClockApp::begin();ClockApp::enter();
   hubConsole().println("[INFO] DeskHub ready: default=clock; HUB_APP clock|home|music|codex; short BOOT: Home");
@@ -260,7 +277,9 @@ void loop() {
   CodexApp::loop();
   inputTick(millis());
   WifiSettings::tick();
-  ClockApp::tick(activeApp==AppId::Clock);
+  if(VideoApp::playing()) {
+    if(VideoApp::tick())ClockApp::enter();
+  } else ClockApp::tick(activeApp==AppId::Clock);
   UsbPackets::tick();
   const bool wifi=WiFi.status()==WL_CONNECTED;
   if (wifi && !CodexApp::isPortalActive()) {
