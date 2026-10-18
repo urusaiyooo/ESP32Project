@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <DebugType>none</DebugType><DebugSymbols>false</DebugSymbols>
+    <PathMap>$(MSBuildProjectDirectory)=.</PathMap>
+    <OutputType>WinExe</OutputType><TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms><RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained><PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <AssemblyName>DeskHubSetup</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup><EmbeddedResource Include="../payload.zip" LogicalName="DeskHub.payload.zip" /></ItemGroup>
+</Project>

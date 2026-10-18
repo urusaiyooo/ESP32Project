@@ -1,0 +1,74 @@
+[
+  {
+    "name": "esptool",
+    "version": "5.2.0"
+  },
+  {
+    "name": "pyserial",
+    "version": "3.5"
+  },
+  {
+    "name": "pyinstaller",
+    "version": "6.22.3"
+  },
+  {
+    "name": "cryptography",
+    "version": "47.0.0"
+  },
+  {
+    "name": "cffi",
+    "version": "2.0.0"
+  },
+  {
+    "name": "click",
+    "version": "8.3.3"
+  },
+  {
+    "name": "rich",
+    "version": "15.0.0"
+  },
+  {
+    "name": "rich-click",
+    "version": "1.9.7"
+  },
+  {
+    "name": "bitstring",
+    "version": "4.4.0"
+  },
+  {
+    "name": "bitarray",
+    "version": "3.8.1"
+  },
+  {
+    "name": "reedsolo",
+    "version": "1.7.0"
+  },
+  {
+    "name": "intelhex",
+    "version": "2.3.0"
+  },
+  {
+    "name": "packaging",
+    "version": "26.2"
+  },
+  {
+    "name": "pyelftools",
+    "version": "0.32"
+  },
+  {
+    "name": "pycparser",
+    "version": "3.0"
+  },
+  {
+    "name": "markdown-it-py",
+    "version": "4.0.0"
+  },
+  {
+    "name": "mdurl",
+    "version": "0.1.2"
+  },
+  {
+    "name": "pygments",
+    "version": "2.20.0"
+  }
+]

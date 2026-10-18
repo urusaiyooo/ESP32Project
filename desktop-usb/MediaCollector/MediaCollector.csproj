@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <DebugType>none</DebugType><DebugSymbols>false</DebugSymbols>
+    <PathMap>$(MSBuildProjectDirectory)=.</PathMap>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <SelfContained>true</SelfContained><PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <AssemblyName>DeskHubMedia</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../music-companion/MusicDisplay/MediaSessionService.cs" Link="MediaSessionService.cs" />
+    <Compile Include="../../music-companion/MusicDisplay/MediaSnapshot.cs" Link="MediaSnapshot.cs" />
+    <Compile Include="../../music-companion/MusicDisplay/TrackIdentity.cs" Link="TrackIdentity.cs" />
+    <Compile Include="../../music-companion/MusicDisplay/QqMusicLyricsService.cs" Link="QqMusicLyricsService.cs" />
+    <Compile Include="../../music-companion/MusicDisplay/LyricsResult.cs" Link="LyricsResult.cs" />
+  </ItemGroup>
+</Project>
