@@ -1,6 +1,7 @@
 #pragma once
 
 #include "display_driver.h"
+#include "compact_fonts.h"
 
 namespace font_fallback {
 
@@ -35,8 +36,8 @@ inline Codepoint decode(const char* text) {
 inline const lgfx::IFont* chooseFont(uint32_t cp, bool bold, bool small) {
   const lgfx::IFont* candidates[]={
     small ? static_cast<const lgfx::IFont*>(&lgfx::fonts::efontCN_16) : &lgfx::fonts::efontCN_24,
-    small ? static_cast<const lgfx::IFont*>(&lgfx::fonts::efontJA_16) : &lgfx::fonts::efontJA_24,
-    small ? static_cast<const lgfx::IFont*>(&lgfx::fonts::efontTW_16) : &lgfx::fonts::efontTW_24};
+    small ? static_cast<const lgfx::IFont*>(&compact_fonts::ja16) : &compact_fonts::ja24,
+    small ? static_cast<const lgfx::IFont*>(&compact_fonts::tw16) : &compact_fonts::tw24};
   for(auto font:candidates) {
     lgfx::FontMetrics metric{};font->getDefaultMetric(&metric);
     if(cp<=0xffff && font->updateFontMetric(&metric,static_cast<uint16_t>(cp)))return font;

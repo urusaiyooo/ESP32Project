@@ -18,4 +18,9 @@ void printMotionStats();
 bool hasSavedNetwork(const String& name);
 bool connectNetwork(const String& name,const String& pass,bool useSaved=false);
 int networkAttemptState();
+struct NetworkStatus {bool associated=false;uint8_t reason=0,channel=0,auth=0;uint32_t disconnects=0;};
+NetworkStatus networkStatus();
+const char* networkAttemptPhase();
+String networkAttemptMessage();
+bool retryNetwork();
 }

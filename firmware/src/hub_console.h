@@ -5,11 +5,17 @@
 class HubConsole : public Stream {
  public:
   void begin(unsigned long baud) {
+    const size_t usbRx=Serial.setRxBufferSize(4096);
     Serial.begin(baud);
 #if defined(CONFIG_IDF_TARGET_ESP32S3)
+    const size_t uartRx=Serial0.setRxBufferSize(4096);
     Serial0.begin(baud);
+    pipelined_=usbRx>=4096&&uartRx>=4096;
+#else
+    pipelined_=usbRx>=4096;
 #endif
   }
+  unsigned usbWindow() const {return pipelined_?8:1;}
   int available() override {
 #if defined(CONFIG_IDF_TARGET_ESP32S3)
     return Serial.available()+Serial0.available();
@@ -45,5 +51,7 @@ class HubConsole : public Stream {
 #endif
     return count;
   }
+ private:
+  bool pipelined_=false;
 };
 inline HubConsole& hubConsole() { static HubConsole console;return console; }

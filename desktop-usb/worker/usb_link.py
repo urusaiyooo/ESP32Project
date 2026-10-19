@@ -12,12 +12,17 @@ from serial.tools import list_ports
 TARGET = os.environ.get("DESKHUB_DEVICE_MAC", "").upper()
 
 
+class PacketCancelled(Exception):
+    """An obsolete music asset was discarded without disconnecting USB."""
+
+
 class UsbLink:
     def __init__(self, device):
         self.device = device
         self.pending = b""
         self.events = deque()
         self.sequence = 0
+        self.window = 1
 
     def close(self): self.device.close()
 
@@ -48,21 +53,38 @@ class UsbLink:
         match=re.search(r"app=(\w+).*heap=(\d+)",line)
         if not match:raise ValueError("Invalid device status")
         uptime=re.search(r"uptime_ms=(\d+)",line)
+        window=re.search(r"usb_window=(\d+)",line)
+        self.window=max(1,min(8,int(window[1]))) if window else 1
         return {"app":match[1],"heap":int(match[2]),"uptime":int(uptime[1]) if uptime else 0}
 
-    def packet(self, kind, value):
+    def packet(self, kind, value, cancelled=None):
         data=value if isinstance(value,bytes) else json.dumps(value,ensure_ascii=False,separators=(",",":"),allow_nan=False).encode()
         self.sequence=(self.sequence+1)&0xffffffff
         request=self.sequence
+        def encoded(**fields):
+            return "HUB_USB "+json.dumps({"id":request,**fields},separators=(",",":"))
         def send(**fields):
-            self.write("HUB_USB "+json.dumps({"id":request,**fields},separators=(",",":")))
+            self.write(encoded(**fields))
+        def check_cancelled():
+            if self.window>1 and cancelled is not None and cancelled():
+                send(op="abort");self.wait(f"USB_ABORT {request}")
+                raise PacketCancelled()
         send(op="begin",kind=kind,length=len(data),crc=zlib.crc32(data)&0xffffffff)
         self.wait(f"USB_ACK {request} 0")
-        for offset in range(0,len(data),256):
-            part=data[offset:offset+256]
-            send(op="chunk",offset=offset,data=base64.b64encode(part).decode())
-            ack=self.wait(f"USB_ACK {request} ")
-            if int(ack.rsplit(" ",1)[1])!=offset+len(part):raise RuntimeError("USB offset mismatch")
+        for start in range(0,len(data),256*self.window):
+            check_cancelled()
+            lines=[];offsets=[]
+            for offset in range(start,min(len(data),start+256*self.window),256):
+                part=data[offset:offset+256]
+                line=(encoded(op="chunk",offset=offset,data=base64.b64encode(part).decode())+"\n").encode()
+                if len(line)>510:raise ValueError("USB line exceeds device limit")
+                lines.append(line);offsets.append(offset+len(part))
+            # One bounded write keeps the UART fed; still verify every chunk ACK.
+            self.device.write(b"".join(lines));self.device.flush()
+            for expected in offsets:
+                ack=self.wait(f"USB_ACK {request} ")
+                if int(ack.rsplit(" ",1)[1])!=expected:raise RuntimeError("USB offset mismatch")
+        check_cancelled()
         send(op="end")
         return self.wait(f"USB_DONE {request} ",30).endswith(" OK")
 

@@ -2,6 +2,7 @@ using MusicDisplay;
 using System.Text;
 using System.Text.Json;
 using Windows.Storage.Streams;
+using System.Threading.Channels;
 
 internal static class Program
 {
@@ -32,19 +33,19 @@ internal static class Program
         try
         {
             await using var media = await MediaSessionService.CreateAsync(quit.Token);
+            var updates=Channel.CreateBounded<MediaSnapshot?>(new BoundedChannelOptions(1){FullMode=BoundedChannelFullMode.DropOldest,SingleReader=true});
+            media.SnapshotChanged+=(_,snapshot)=>updates.Writer.TryWrite(snapshot);
             var mediaTask = media.RunAsync(quit.Token);
             // Console.In's synchronized reader may block before returning its Task.
             // Keep it off the metadata publisher thread, including when stdin is idle.
             _=Task.Run(()=>ReadCommands(media,quit.Token));
             string? lastTrack = null;
             CancellationTokenSource? assets = null;
-            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
-            do
+            await foreach(var snapshot in updates.Reader.ReadAllAsync(quit.Token))
             {
-                var snapshot = media.LatestSnapshot;
                 if (snapshot is null)
                 {
-                    Emit(new { kind = "idle" });lastTrack = null;
+                    assets?.Cancel();Emit(new { kind = "idle" });lastTrack = null;
                 }
                 else
                 {
@@ -57,10 +58,11 @@ internal static class Program
                     {
                         assets?.Cancel();assets?.Dispose();assets = CancellationTokenSource.CreateLinkedTokenSource(quit.Token);
                         lastTrack = snapshot.TrackId;
-                        _ = ReadAssets(snapshot, assets.Token);
+                        var token=assets.Token;
+                        _ = Task.Run(()=>ReadAssets(snapshot, token),token);
                     }
                 }
-            } while (await timer.WaitForNextTickAsync(quit.Token));
+            }
             await mediaTask;
         }
         catch (OperationCanceledException) { }
@@ -116,11 +118,17 @@ internal static class Program
         {
             if(snapshot.SourceAppId.EndsWith("QQMusic.exe",StringComparison.OrdinalIgnoreCase))
             {
+                try
+                {
                 using var qq=new QqMusicLyricsService();
                 var result=await qq.GetLyricsAsync(snapshot,token);
                 if(result.Lrc.Length>0 && Encoding.UTF8.GetByteCount(result.Lrc)<=32768)
                 {Cache.Save(snapshot,lrc:result.Lrc,plain:"");Emit(new {kind="lyrics",track_id=snapshot.TrackId,lrc=result.Lrc,plain=""});return;}
+                }
+                catch(OperationCanceledException) when(token.IsCancellationRequested) {return;}
+                catch(Exception e) {Console.Error.WriteLine("QQ lyrics fallback: "+e.GetType().Name);}
             }
+            token.ThrowIfCancellationRequested();
             using var http=new HttpClient{Timeout=TimeSpan.FromSeconds(12)};
             http.DefaultRequestHeaders.UserAgent.ParseAdd("DeskHub/1.4.7");
             var url="https://lrclib.net/api/get?track_name="+Uri.EscapeDataString(snapshot.Title)+

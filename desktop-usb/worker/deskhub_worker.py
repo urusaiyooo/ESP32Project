@@ -20,10 +20,48 @@ else:
     sys.path.insert(0,str(ROOT/"tools"))
 from clock_sync import AccountClient
 from dashboard_data import Activity,weather,workbuddy
-from usb_link import UsbLink
+from usb_link import UsbLink,PacketCancelled
 from music_controls import ControlBridge,playback_payload
 
 RUNTIME=Path(os.environ.get("LOCALAPPDATA",Path.home()))/"DeskHub/runtime"
+
+
+class AssetDelivery:
+    """Bound retries to one selected track; acknowledge assets only on success."""
+    MAX_ATTEMPTS=3
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.track_id=None
+        self.sent=set()
+        self.attempts={}
+        self.retry_at={}
+
+    def select(self,track_id):
+        if track_id!=self.track_id:
+            self.reset()
+            self.track_id=track_id
+
+    def invalidate(self,track_id,kind):
+        if track_id==self.track_id:
+            self.sent.discard(kind)
+            self.attempts.pop(kind,None)
+            self.retry_at.pop(kind,None)
+
+    def forward(self,kind,value,send,now):
+        if kind in self.sent or self.attempts.get(kind,0)>=self.MAX_ATTEMPTS or now<self.retry_at.get(kind,0):
+            return
+        okay=send(kind,value)
+        count=self.attempts.get(kind,0)+1
+        self.attempts[kind]=count
+        if okay:
+            self.sent.add(kind)
+            logging.info('Music asset forwarded: %s attempt=%s',kind,count)
+        else:
+            self.retry_at[kind]=time.monotonic()+2**count
+            logging.warning('Music asset rejected: %s attempt=%s/%s',kind,count,self.MAX_ATTEMPTS)
 
 
 def main():
@@ -48,11 +86,13 @@ def main():
     if (ROOT/"codex/codex.exe").exists():
         os.environ["PATH"]=str(ROOT/"codex")+os.pathsep+os.environ.get("PATH","")
     media_queue=queue.Queue(maxsize=128)
+    media_wake=threading.Event()
+    observed_track=None
     quota_queue=queue.Queue(maxsize=2)
     shutdown=threading.Event()
     media_process=None
     def media_reader():
-        nonlocal media_process
+        nonlocal media_process,observed_track
         exe=ROOT/"media/DeskHubMedia.exe"
         while not shutdown.is_set():
             try:
@@ -62,8 +102,11 @@ def main():
                     if shutdown.is_set():break
                     try:item=json.loads(line)
                     except ValueError:continue
+                    if item.get('kind')=='playback':observed_track=item['track_id']
+                    elif item.get('kind')=='idle':observed_track=None
                     if media_queue.full():media_queue.get_nowait()
                     media_queue.put_nowait(item)
+                    media_wake.set()
             except (OSError,queue.Empty,queue.Full):logging.warning("Music collector unavailable")
             if shutdown.wait(5):break
     def quota_reader():
@@ -96,34 +139,37 @@ def main():
             if shutdown.wait(30):break
     threading.Thread(target=dashboard_reader,daemon=True).start()
     activity=Activity();dashboard={'weather':{'available':False,'at':0},'workbuddy':{'available':False,'at':0}}
-    link=None;latest=None;assets={};sent_track=None;sent_lyrics=None;sent_cover=None;idle=False
+    link=None;latest=None;assets={};sent_track=None;delivery=AssetDelivery();idle=False
     last_dashboard=0;last_clock=0;last_playback=0;last_app=None;clock_payload=None;last_uptime=0
     try:
         while not shutdown.is_set():
+            media_wake.clear()
             now=time.monotonic()
             while not media_queue.empty():
                 item=media_queue.get_nowait();kind=item.get("kind")
-                if kind=="playback":latest=item
+                if kind=="playback":
+                    latest=item;delivery.select(item['track_id'])
                 elif kind=="control_result":control_results.append(item)
                 elif kind=="cache_status":logging.info('Music cache: cover_hit=%s lyrics_hit=%s',item.get('cover_hit'),item.get('lyrics_hit'))
-                elif kind=="idle":latest=None
+                elif kind=="idle":latest=None;delivery.reset()
                 elif kind in ("lyrics","cover"):
                     tid=item.get("track_id")
                     assets.setdefault(tid,{})[kind]=item
+                    delivery.invalidate(tid,kind)
                     if len(assets)>4:assets.pop(next(iter(assets)))
             while not quota_queue.empty():clock_payload=quota_queue.get_nowait();last_clock=0
             while not dashboard_queue.empty():dashboard=dashboard_queue.get_nowait();last_dashboard=0
             try:
                 if link is None:
-                    link=UsbLink.connect();last_app=None;sent_track=None;last_clock=0;last_dashboard=0
+                    link=UsbLink.connect();last_app=None;sent_track=None;delivery.reset();last_clock=0;last_dashboard=0
                     logging.info("USB connected: %s",link.device.port)
                 status=link.status();app=status["app"]
                 if status["uptime"]<last_uptime:
                     controls.reset()
-                    last_clock=last_dashboard=0;sent_track=None;sent_lyrics=sent_cover=None
+                    last_clock=last_dashboard=0;sent_track=None;delivery.reset()
                 last_uptime=status["uptime"]
                 if app!=last_app:
-                    logging.info("Device app: %s",app);sent_track=None;sent_lyrics=sent_cover=None;idle=False;last_app=app
+                    logging.info("Device app: %s",app);sent_track=None;delivery.reset();idle=False;last_app=app
                 if clock_payload and now-last_clock>30:
                     clock_payload["epoch"]=int(time.time());link.clock(clock_payload);last_clock=now
                     logging.info("Clock synchronized; account_available=%s",clock_payload["available"])
@@ -144,24 +190,31 @@ def main():
                     if latest is None:
                         if not idle:link.packet("idle",{});idle=True;sent_track=None
                     else:
-                        tid=latest["track_id"];idle=False
+                        tid=latest["track_id"];idle=False;delivery.select(tid)
                         if tid!=sent_track:
                             if link.packet("track",{k:latest[k] for k in ("track_id","title","artist","album","duration_ms")}):
-                                sent_track=tid;sent_lyrics=sent_cover=None
-                                logging.info("Music text metadata forwarded")
+                                sent_track=tid
+                                logging.info("Music text metadata forwarded; observed_age_ms=%s",max(0,int(time.time()*1000)-latest.get('observed_at_ms',int(time.time()*1000))))
                         if sent_track==tid and now-last_playback>1:
                             link.packet("playback",playback_payload(latest,int(time.time()*1000)));last_playback=now
                         track_assets=assets.get(tid,{})
-                        if "lyrics" in track_assets and sent_lyrics!=tid:
+                        def send_asset(kind,value):
+                            start=time.monotonic()
+                            cancelled=lambda: observed_track!=tid or any(e.get('command') in ('next','previous') for e in link.events)
+                            result=link.packet(kind,value,cancelled=cancelled)
+                            logging.info('Music asset transfer: %s seconds=%.3f',kind,time.monotonic()-start)
+                            return result
+                        if sent_track==tid and "lyrics" in track_assets:
                             value=track_assets["lyrics"]
-                            if link.packet("lyrics",{k:value[k] for k in ("track_id","lrc","plain")}):logging.info("Raw lyrics forwarded; timeline/rendering on S3")
-                            sent_lyrics=tid
-                        if "cover" in track_assets and sent_cover!=tid:
+                            delivery.forward("lyrics",{k:value[k] for k in ("track_id","lrc","plain")},send_asset,time.monotonic())
+                        if sent_track==tid and "cover" in track_assets and 'cover' not in delivery.sent:
                             raw=base64.b64decode(track_assets["cover"]["data"],validate=True)
-                            okay=link.packet("cover",raw);sent_cover=tid
-                            logging.info("Original cover forwarded; device_decode=%s bytes=%s",okay,len(raw))
+                            delivery.forward("cover",raw,send_asset,time.monotonic())
                 if args.once:return 0
-                time.sleep(.3)
+                media_wake.wait(.05)
+            except PacketCancelled:
+                logging.info('Obsolete music asset cancelled; prioritizing latest track/control')
+                continue
             except Exception as e:
                 logging.warning("USB reconnect: %s",type(e).__name__)
                 if link:link.close()

@@ -41,8 +41,8 @@
     {
       "name": "firmware.bin",
       "address": 65536,
-      "bytes": 4854928,
-      "sha256": "42b05a97529ba8fb9f0c9accdead7a4f6b76d71143c901fcc9a376f1ff9074ab"
+      "bytes": 3279616,
+      "sha256": "c624ca07756b997f7295ee63a8c0a2843c731b3cfaf5409bdf96f2cc9321c65a"
     },
     {
       "name": "video.bin",

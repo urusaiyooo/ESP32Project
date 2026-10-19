@@ -9,13 +9,20 @@
 namespace {
 constexpr uint16_t white=0xffff,ink=0x18c5,muted=0x8410,edge=0xd69a;
 constexpr uint16_t blue=0x43d8,orange=0xfbe0,lyricBg=0xf7bf,purple=0x6afb,pale=0xef5f;
-constexpr int lx=162,ly=100,lw=296,lh=184,pitch=42;
+constexpr int lx=162,ly=100,lw=296,lh=204,pitch=42;
 template<class G> void txt(G& d,const String& s,int x,int y,uint16_t fg=ink,uint16_t bg=white,bool big=false){
  d.setTextDatum(lgfx::textdatum_t::top_left);d.setTextWrap(false,false);
  font_fallback::draw(d,s.c_str(),x,y,!big,false,fg,bg);
 }
 template<class G> void center(G& d,const String& s,int x,int y,uint16_t fg=ink,uint16_t bg=white){
  int w=font_fallback::measure(d,s.c_str(),true,false);txt(d,s,x-w/2,y,fg,bg);
+}
+template<class G> void quotaHeader(G& canvas,int offset,const String& label,int width,bool fresh){
+ const int y=offset?5:0;
+ txt(canvas,"五小时额度",246-offset,8-y);
+ canvas.fillRoundRect(332-offset,12-y,88,8,3,0xe71c);
+ if(width)canvas.fillRoundRect(332-offset,12-y,width,8,3,blue);
+ txt(canvas,label+"   ",430-offset,8-y,fresh?ink:muted);
 }
 uint32_t bounce(uint32_t age,int overflow){
  if(overflow<=0||age<900)return 0;
@@ -27,11 +34,12 @@ uint32_t bounce(uint32_t age,int overflow){
 void UiRenderer::layout(){
  release();display_.clearClipRect();display_.fillScreen(white);
  display_.drawRoundRect(150,34,320,278,14,edge);
- display_.fillRoundRect(158,96,304,192,12,lyricBg);
+ display_.fillRoundRect(158,96,304,212,12,lyricBg);
  display_.drawRoundRect(10,254,128,58,10,edge);center(display_,"ChatGPT",74,261);
  display_.fillRoundRect(10,36,128,128,8,ui_config::kCoverBackground);
  display_.drawCircle(74,91,31,blue);display_.drawCircle(74,91,21,white);display_.fillCircle(74,91,4,blue);
  viewport_.setPsram(true);viewport_.setColorDepth(16);ready_=viewport_.createSprite(lw,lh)!=nullptr;
+ headerBuffer_.setPsram(true);headerBuffer_.setColorDepth(16);headerBuffer_.createSprite(468,24);
  second_=-1;activityKey_="";lastProgress_=UINT32_MAX;playing_=true;controls(false);header();activity();
 }
 void UiRenderer::metadata(const String& value,lgfx::LGFX_Sprite& sprite,bool big){
@@ -43,7 +51,7 @@ void UiRenderer::metadata(const String& value,lgfx::LGFX_Sprite& sprite,bool big
 }
 void UiRenderer::drawIdle(const char* status,const String&){
  layout();metadata(status,title_,true);metadata("等待电脑音乐播放",artist_,false);metadataAt_=millis();metadataTick(metadataAt_);
- if(ready_){viewport_.fillSprite(lyricBg);center(viewport_,"播放后显示歌词",lw/2,80,muted,lyricBg);viewport_.pushSprite(lx,ly);}
+ if(ready_){viewport_.fillSprite(lyricBg);center(viewport_,"播放后显示歌词",lw/2,lh/2-8,muted,lyricBg);viewport_.pushSprite(lx,ly);}
  drawProgress(0,0);
 }
 void UiRenderer::drawTrack(const TrackState& state){
@@ -60,16 +68,42 @@ void UiRenderer::metadataTick(uint32_t now){
  display_.clearClipRect();lastMetadata_=now;
 }
 void UiRenderer::header(){
- time_t epoch=time(nullptr);tm local{};localtime_r(&epoch,&local);display_.fillRect(6,5,468,24,white);
+ time_t epoch=time(nullptr);tm local{};localtime_r(&epoch,&local);
+ String dateText,timeText,dayText;
  if(epoch>=1704067200){
   char date[20],clock[12];strftime(date,sizeof(date),"%Y-%m-%d",&local);strftime(clock,sizeof(clock),"%H:%M:%S",&local);
   const char* days[]={"日","一","二","三","四","五","六"};
-  txt(display_,date,10,8);txt(display_,clock,98,8);txt(display_,String("星期")+days[local.tm_wday],170,8);
- }else txt(display_,"等待校时",10,8,muted);
- auto info=ClockApp::musicInfo();txt(display_,"五小时额度",246,8);
- display_.fillRoundRect(332,12,88,8,3,0xe71c);
- if(info.quotaFresh){int width=roundf(constrain(info.remaining,0.f,100.f)*.88f);if(width)display_.fillRoundRect(332,12,width,8,3,blue);}
- txt(display_,info.quotaFresh?String(info.remaining,0)+"%":"--",430,8,info.quotaFresh?ink:muted);second_=epoch;
+  dateText=date;timeText=clock;dayText=String("星期")+days[local.tm_wday];
+ }else dateText="等待校时";
+ // Compose off-screen, then transfer only fields whose visible contents changed.
+ // Never clear the LCD header before drawing the new second.
+ const bool buffered=headerBuffer_.width()!=0;
+ auto field=[&](const String& value,String& previous,int x,int width,uint16_t color){
+  if(value==previous&&second_!=-1)return;
+  if(buffered){
+   headerBuffer_.fillRect(x-6,0,width,24,white);txt(headerBuffer_,value,x-6,3,color);
+   display_.setClipRect(x,5,width,24);headerBuffer_.pushSprite(6,5);display_.clearClipRect();
+  }else{
+   // Opaque, padded text also avoids a clear-then-draw flash if PSRAM is exhausted.
+   display_.setClipRect(x,5,width,24);txt(display_,value+"            ",x,8,color);display_.clearClipRect();
+  }
+  previous=value;
+ };
+ field(dateText,headerDate_,10,88,epoch>=1704067200?ink:muted);
+ if(timeText!=headerTime_||second_==-1)++headerTimeUpdates_;
+ field(timeText,headerTime_,98,72,ink);field(dayText,headerDay_,170,70,ink);
+ auto info=ClockApp::musicInfo();
+ const int barWidth=info.quotaFresh?roundf(constrain(info.remaining,0.f,100.f)*.88f):0;
+ const String quotaText=info.quotaFresh?String(info.remaining,0)+"%":"--";
+ const String quotaKey=quotaText+":"+String(barWidth);
+ if(quotaKey!=headerQuota_){
+  if(buffered){
+   headerBuffer_.fillRect(234,0,234,24,white);quotaHeader(headerBuffer_,6,quotaText,barWidth,info.quotaFresh);
+   display_.setClipRect(240,5,234,24);headerBuffer_.pushSprite(6,5);display_.clearClipRect();
+  }else quotaHeader(display_,0,quotaText,barWidth,info.quotaFresh);
+  headerQuota_=quotaKey;++headerQuotaUpdates_;
+ }
+ second_=epoch;
 }
 void UiRenderer::activity(){
  auto info=ClockApp::musicInfo();String key=info.online?(info.busy?"running":"idle"):"offline";
@@ -102,21 +136,16 @@ void UiRenderer::buildRows(const LyricsEngine& lyrics,int index){
  anchor_=index;
  for(int slot=0;slot<7;++slot){
   rows_[slot].deleteSprite();String value=lyrics.textAt(index+slot-3);if(value.isEmpty()&&slot==3)value="♪";
-  String first=value,second;int newline=value.indexOf('\n');
-  if(newline>=0){first=value.substring(0,newline);second=value.substring(newline+1);second.replace("\n"," / ");}
-  else if(font_fallback::measure(display_,first.c_str(),true,false)>lw-12){
-   String line;size_t at=0;while(at<first.length()){
-    auto cp=font_fallback::decode(first.c_str()+at);if(!cp.length)break;String candidate=line+first.substring(at,at+cp.length);
-    if(font_fallback::measure(display_,candidate.c_str(),true,false)>lw-12)break;line=candidate;at+=cp.length;
-   }second=first.substring(at);first=line;
-  }
-  int width=max(font_fallback::measure(display_,first.c_str(),true,false),font_fallback::measure(display_,second.c_str(),true,false));
-  rowWidths_[slot]=width;rows_[slot].setPsram(true);rows_[slot].setColorDepth(16);
-  if(!rows_[slot].createSprite(min(2048,max(lw,width)),40))continue;
-  rows_[slot].fillSprite(lyricBg);uint16_t color=slot==3?0x2210:0x94b2;
-  int fw=font_fallback::measure(rows_[slot],first.c_str(),true,false),sw=font_fallback::measure(rows_[slot],second.c_str(),true,false);
-  txt(rows_[slot],first,fw<=lw?(lw-fw)/2:0,second.length()?2:12,color,lyricBg);
-  if(second.length())txt(rows_[slot],second,sw<=lw?(lw-sw)/2:0,21,color,lyricBg);
+  // Every timestamp group stays on one line, including original/translation.
+  value.replace("\n"," / ");const bool current=slot==3;
+  const int measured=font_fallback::measure(display_,value.c_str(),!current,false);
+  // Only the active row needs an off-screen tail. Neighbours are clipped in place.
+  const int width=current?min(8192,max(lw,measured)):lw;
+  rowWidths_[slot]=current?min(measured,width):lw;
+  rows_[slot].setPsram(true);rows_[slot].setColorDepth(16);
+  if(!rows_[slot].createSprite(width,40))continue;
+  rows_[slot].fillSprite(lyricBg);
+  txt(rows_[slot],value,measured<=lw?(lw-measured)/2:0,current?8:12,current?0x2210:0x94b2,lyricBg,current);
  }
 }
 void UiRenderer::renderLyrics(const LyricsEngine& lyrics,uint32_t position,uint32_t now){
@@ -130,9 +159,9 @@ void UiRenderer::renderLyrics(const LyricsEngine& lyrics,uint32_t position,uint3
  int overflow=rowWidths_[3]-lw;bool horizontal=overflow>0;
  if(!ready_||now-lastFrame_<50||(!lyricDirty_&&!horizontal))return;
  lastFrame_=now;viewport_.fillSprite(lyricBg);
- if(!lyrics.count())center(viewport_,"暂无歌词",lw/2,82,muted,lyricBg);
+ if(!lyrics.count())center(viewport_,"暂无歌词",lw/2,lh/2-8,muted,lyricBg);
  else for(int slot=0;slot<7;++slot){
-  if(!rows_[slot].width())continue;int y=roundf(72+(anchor_+slot-3-visual_)*pitch);
+  if(!rows_[slot].width())continue;int y=roundf((lh-40)/2+(anchor_+slot-3-visual_)*pitch);
   int x=slot==3?-int(bounce(position>=lyrics.timestampAt(index_)?position-lyrics.timestampAt(index_):0,overflow)):0;
   rows_[slot].pushSprite(&viewport_,x,y);
  }
@@ -144,15 +173,19 @@ void UiRenderer::tick(const TrackState& state,const LyricsEngine& lyrics,uint32_
  drawProgress(state.estimatedPosition(now),state.durationMs);if(state.active)renderLyrics(lyrics,state.estimatedPosition(now),now);
  if(pending_&&now-pendingAt_>5000){pending_=0;feedback_="播放器未响应";messageUntil_=now+3000;}
  String message=static_cast<int32_t>(messageUntil_-now)>0?feedback_:"";
- if(shownFeedback_!=message){display_.fillRect(160,292,236,18,white);txt(display_,message,166,294,muted);shownFeedback_=message;}
+ if(shownFeedback_!=message){display_.fillRect(14,258,120,22,white);center(display_,message.length()?message:String("ChatGPT"),74,261,muted);shownFeedback_=message;}
 }
 void UiRenderer::printStatus() const{
- JsonDocument doc;doc["layout"]="music-v2";doc["lyric_index"]=index_;doc["visual_index"]=visual_;doc["animating"]=transition_;
+ JsonDocument doc;doc["layout"]="music-v2-cover-home";doc["lyric_index"]=index_;doc["visual_index"]=visual_;doc["animating"]=transition_;
+ doc["lyrics_height"]=lh;
+ doc["active_lyric_font_px"]=24;doc["lyric_wrap"]=false;
  doc["rendered_frames"]=animatedFrames_;doc["pending_control"]=pending_;doc["feedback"]=feedback_;doc["playing"]=playing_;
+ doc["header_buffered"]=headerBuffer_.width()!=0;doc["header_time_updates"]=headerTimeUpdates_;doc["header_quota_updates"]=headerQuotaUpdates_;
  hubConsole().print("MUSIC_STATUS ");serializeJson(doc,hubConsole());hubConsole().println();
 }
 void UiRenderer::release(){
  viewport_.deleteSprite();title_.deleteSprite();artist_.deleteSprite();for(auto& row:rows_)row.deleteSprite();ready_=false;
+ headerBuffer_.deleteSprite();headerDate_=headerTime_=headerDay_=headerQuota_="";second_=-1;headerTimeUpdates_=headerQuotaUpdates_=0;
  index_=anchor_=-2;revision_=UINT32_MAX;visual_=from_=-1;transition_=false;lyricDirty_=true;pending_=0;feedback_=shownFeedback_="";animatedFrames_=0;
 }
 void UiRenderer::drawDemo(bool){drawIdle("音乐屏","");}

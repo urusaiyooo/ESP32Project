@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <WiFi.h>
+#include <esp_netif.h>
 #include "wifi_settings.h"
 #include "app_shell.h"
 #include "codex_app.h"
@@ -21,6 +22,7 @@ String selected,input,message;
 wifi_auth_mode_t selectedAuth=WIFI_AUTH_WPA2_PSK;
 uint32_t scanAt=0,lastStatus=0;
 String previousConnection;
+String previousPhase;
 const char* keys[]={"abcdefghijklmnopqrstuvwxyz0123456789","ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789","!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"};
 void text(const String& value,int x,int y,uint16_t color=ink) {
   auto& d=sharedDisplay;d.setFont(&lgfx::fonts::efontCN_16);d.setTextSize(1);
@@ -50,7 +52,7 @@ void connect(bool saved) {
   if(selectedAuth==WIFI_AUTH_WPA2_ENTERPRISE) {message="暂不支持需要用户名的企业网络";dirty=true;return;}
   if(!CodexApp::connectNetwork(selected,input,saved)) {message="密码需 8–63 位；开放网络留空";dirty=true;return;}
   scanning=false;
-  input=String();page=Page::Connecting;message="正在连接，请稍候…";lastAttempt=1;dirty=true;
+  input=String();page=Page::Connecting;message=CodexApp::networkAttemptMessage();previousPhase="";lastAttempt=1;dirty=true;
 }
 void editPassword() {
   input=String();keyboard=0;reveal=false;message=String();page=Page::Password;dirty=true;
@@ -77,6 +79,7 @@ void render() {
     text(message,16,113,page==Page::Result?ink:accent);
     if(page==Page::Connecting) text("连接成功后自动保存，下次开机自动连接",16,152,muted);
     if(page==Page::Result && CodexApp::networkAttemptState()==2) text("IP: "+WiFi.localIP().toString(),16,152,muted);
+    else if(page==Page::Result)text("错误码: "+String(CodexApp::networkStatus().reason),16,152,muted);
     button(page==Page::Connecting?"返回首页":"返回列表",16,278,140);
     if(page==Page::Result && CodexApp::networkAttemptState()!=2) button("重新输入",304,278,160);
     return;
@@ -96,6 +99,7 @@ void render() {
   button(page==Page::Password && CodexApp::hasSavedNetwork(selected)?"已存密码":"清空",172,278,130);
   button(page==Page::Name?"下一步":"连接",310,278,154,0x2945);
   if(message.length()) {d.fillRect(16,260,448,17,bg);text(message,16,260,0xFD65);}
+  else if(page==Page::Password)text("已输入 "+String(input.length())+" 位",16,260,muted);
 }
 }
 void open() {
@@ -130,8 +134,9 @@ void tick() {
     int state=CodexApp::networkAttemptState();
     if(state!=lastAttempt) {
       lastAttempt=state;page=Page::Result;
-      message=state==2?"连接成功，已保存 Wi-Fi":state==4?"已连接，但配置保存失败":"连接失败，请检查密码或信号";dirty=true;
+      message=CodexApp::networkAttemptMessage();dirty=true;
     }
+    String phase=CodexApp::networkAttemptPhase();if(phase!=previousPhase){previousPhase=phase;if(state==1)message=CodexApp::networkAttemptMessage();dirty=true;}
   }
   if(page==Page::List && millis()-lastStatus>=1000) {
     lastStatus=millis();String state=String(WiFi.status())+WiFi.SSID();
@@ -170,7 +175,7 @@ void gesture(int x,int y,int dx,int dy) {
   else if(y>=110 && y<140) keyboard=x<164?0:x<316?1:2;
   else if(y>=148 && y<260 && x>=16 && x<466) {
     int col=(x-16)/45,row=(y-148)/28,index=row*10+col;
-    if(col<10 && index<static_cast<int>(strlen(keys[keyboard])) && input.length()<(page==Page::Name?32:63)) input+=keys[keyboard][index];
+    if((x-16)%45<42&&(y-148)%28<24&&col<10 && index<static_cast<int>(strlen(keys[keyboard])) && input.length()<(page==Page::Name?32:63)) input+=keys[keyboard][index];
   } else if(y>=278 && y<308) {
     if(x<86) {if(input.length()<(page==Page::Name?32:63)) input+=' ';}
     else if(x<164) {if(input.length()) input.remove(input.length()-1);}
@@ -184,6 +189,11 @@ void gesture(int x,int y,int dx,int dy) {
 void printStatus() {
   JsonDocument doc;doc["page"]=static_cast<int>(page);doc["scanning"]=scanning;
   doc["attempt"]=CodexApp::networkAttemptState();doc["input_length"]=input.length();doc["keyboard"]=keyboard;
+  auto status=CodexApp::networkStatus();doc["phase"]=CodexApp::networkAttemptPhase();doc["wifi_status"]=static_cast<unsigned>(WiFi.status());doc["reason"]=status.reason;doc["associated"]=status.associated;doc["channel"]=status.channel;doc["auth"]=status.auth;doc["disconnects"]=status.disconnects;
+  auto netif=esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+  esp_netif_dhcp_status_t dhcp=ESP_NETIF_DHCP_INIT;
+  doc["dhcp_state"]=netif&&esp_netif_dhcpc_get_status(netif,&dhcp)==ESP_OK?static_cast<int>(dhcp):-1;
+  doc["has_ip"]=static_cast<uint32_t>(WiFi.localIP())!=0;
   doc["first"]=first;doc["selected"]=selected;doc["connected"]=WiFi.status()==WL_CONNECTED;
   doc["message"]=message;doc["scan_code"]=WiFi.scanComplete();
   auto list=doc["networks"].to<JsonArray>();for(const auto& n:networks) list.add(n.name);

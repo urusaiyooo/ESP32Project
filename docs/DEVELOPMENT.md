@@ -26,7 +26,21 @@ powershell -ExecutionPolicy Bypass -File tools/Build-Windows.ps1 -CodexExe 'C:\�
 
 Codex CLI 源码/发布包：[openai/codex](https://github.com/openai/codex)。此项目只使用登录和 `app-server --stdio` 账号读取接口，不携带开发者登录状态。
 
-## 更换人物
+## 字体保真精简
+
+`firmware/src/compact_fonts.cpp/.h` 是已生成并随源码提供的备用字体数据。简体主字体保持原样；日文和繁体备用字体只保留前面字体未覆盖的字符，保留原有全部字符覆盖和实际选中字形，不改变 16/24 像素字号。原始 efont 版权声明保留在生成文件中。
+
+字体数据来自固定的 LovyanGFX 1.2.7。需要更新字体时，先安装 PlatformIO 依赖，然后运行：
+
+```powershell
+python tools/generate_compact_fonts.py
+```
+
+生成器逐个检查四套备用字体的全部 65,536 个 BMP 码位查找结果，并比较保留字形的数据和原始字体度量。生成文件必须与 `font_fallback.h` 的 CN → JA → TW 顺序一起使用。顺序变更或新增直接使用备用字体的代码时，应重新生成并检查覆盖。
+
+视频仍保持原 320×180、12fps、110 秒素材；字体精简不修改视频和 Flash 分区。运行内存占用应与编译后 Flash 体积分别评估。
+
+## 更换人物资源
 
 替换 `assets/character-left.png`、`character-right.png`，运行 `.venv\Scripts\python.exe tools/generate_clock_art.py` 后重建固件。天气默认位置在 `dashboard_data.py`，固件地点标签在 `clock_app.cpp`；修改时一起更新。
 

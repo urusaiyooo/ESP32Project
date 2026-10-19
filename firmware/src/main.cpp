@@ -76,12 +76,12 @@ void drawHome() {
 }
 
 void drawHomeButton() {
-  const uint16_t buttonBg=activeApp==AppId::Music?0xef5f:0x2945;
-  sharedDisplay.fillRoundRect(408,289,64,activeApp==AppId::Music?20:25,6,buttonBg);
+  const uint16_t buttonBg=0x2945;
+  sharedDisplay.fillRoundRect(408,289,64,25,6,buttonBg);
   sharedDisplay.setFont(&lgfx::fonts::efontCN_16);
   sharedDisplay.setTextDatum(lgfx::textdatum_t::top_left);
   sharedDisplay.setTextSize(1);
-  sharedDisplay.setTextColor(activeApp==AppId::Music?0x5a93:0xFFFF,buttonBg);
+  sharedDisplay.setTextColor(0xFFFF,buttonBg);
   sharedDisplay.drawString("应用",423,293);
 }
 
@@ -115,6 +115,12 @@ void dispatchGesture(int x,int y,int dx,int dy,uint32_t held) {
   if(activeApp==AppId::Wifi) {WifiSettings::gesture(x,y,dx,dy);return;}
   const bool buttonTap=abs(dx)<=28 && abs(dy)<=28;
   if(activeApp==AppId::Music&&buttonTap&&held<900) {
+    // The album artwork is an invisible Home target; no button or overlay.
+    auto onCover=[](int px,int py){return px>=ui_config::kCoverX&&px<ui_config::kCoverX+ui_config::kCoverWidth&&
+      py>=ui_config::kCoverY&&py<ui_config::kCoverY+ui_config::kCoverHeight;};
+    if(onCover(downX,downY)&&onCover(x,y)){selectApp(AppId::Home);return;}
+  }
+  if(activeApp==AppId::Music&&buttonTap&&held<900) {
     const char* start=musicUi.controlAt(downX,downY,track.playing);
     const char* end=musicUi.controlAt(x,y,track.playing);
     if(start&&end&&!strcmp(start,end)&&millis()-lastControl>=300) {
@@ -139,8 +145,8 @@ void dispatchGesture(int x,int y,int dx,int dy,uint32_t held) {
         x>=120 && x<360 && y>=40 && y<136) selectApp(AppId::Home);
     return;
   }
-  // Other apps retain their existing lower-right Home button.
-  if (activeApp!=AppId::Home && buttonTap && downX>=400 && downY>=281 &&
+  // Music uses only its cover target; other apps retain their Home button.
+  if (activeApp!=AppId::Home && activeApp!=AppId::Music && buttonTap && downX>=400 && downY>=281 &&
       downX<480 && downY<320 && x>=400 && y>=281 && x<480 && y<320) {
     selectApp(AppId::Home); return;
   }
@@ -305,7 +311,9 @@ void loop() {
   }
   now=millis(); // HTTP requests can take time; avoid stale timestamp underflow.
   if (activeApp==AppId::Music) {
-    musicUi.tick(track,lyrics,now);
+    // A full SPI lyric redraw between every USB chunk starves the data link.
+    // Keep touch/serial alive while receiving; repaint once the asset is complete.
+    if(!UsbPackets::receiving())musicUi.tick(track,lyrics,now);
     if (track.active && now-track.lastPlaybackMs>=config::kIdleTimeoutMs) {
       track.clear();lyrics.clear();musicUi.drawIdle("等待播放",wifi ? WiFi.localIP().toString() : String());
     }
@@ -318,7 +326,7 @@ void loop() {
       if (status!=lastHomeStatus) {lastHomeStatus=status;homeDirty=true;}
     }
     if (homeDirty) drawHome();
-  } else if (activeApp!=AppId::Wifi && activeApp!=AppId::Clock && now-lastButton>=100) {lastButton=now;drawHomeButton();}
+  } else if (activeApp!=AppId::Wifi && activeApp!=AppId::Clock && activeApp!=AppId::Music && now-lastButton>=100) {lastButton=now;drawHomeButton();}
   static uint32_t heapAt=0;
   if (now-heapAt>=10000) {
     heapAt=now;

@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 namespace UsbPackets {
+bool receiving();
 bool line(const String& input);
 void tick();
 }

@@ -14,6 +14,7 @@ void clear() {if(buffer)heap_caps_free(buffer);buffer=nullptr;kind="";expected=r
 void fail(uint32_t request) {hubConsole().printf("USB_ERROR %lu\n",static_cast<unsigned long>(request));clear();}
 }
 void tick() {if(buffer && millis()-last>30000) fail(id);}
+bool receiving(){return buffer!=nullptr;}
 bool line(const String& input) {
   if (!input.startsWith("HUB_USB ")) return false;
   JsonDocument doc;
@@ -32,6 +33,7 @@ bool line(const String& input) {
     hubConsole().printf("USB_ACK %lu 0\n",static_cast<unsigned long>(id));return true;
   }
   if(!buffer || request!=id) {fail(request);return true;}
+  if(op=="abort") {clear();hubConsole().printf("USB_ABORT %lu\n",static_cast<unsigned long>(request));return true;}
   last=millis();
   if(op=="chunk") {
     if(!doc["offset"].is<uint32_t>() || doc["offset"].as<uint32_t>()!=received) {fail(request);return true;}

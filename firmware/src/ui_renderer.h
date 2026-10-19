@@ -5,7 +5,7 @@
 #include "track_state.h"
 class UiRenderer {
  public:
-  UiRenderer(DisplayDriver& display,LyricsMarquee&):display_(display),viewport_(&display),title_(&display),artist_(&display){}
+  UiRenderer(DisplayDriver& display,LyricsMarquee&):display_(display),viewport_(&display),title_(&display),artist_(&display),headerBuffer_(&display){}
   void release();
   void drawDemo(bool longText=false);
   void drawIdle(const char* status,const String& ip);
@@ -28,6 +28,9 @@ class UiRenderer {
   void renderLyrics(const LyricsEngine& lyrics,uint32_t position,uint32_t now);
   DisplayDriver& display_;
   lgfx::LGFX_Sprite viewport_,title_,artist_,rows_[7];
+  lgfx::LGFX_Sprite headerBuffer_;
+  String headerDate_,headerTime_,headerDay_,headerQuota_;
+  uint32_t headerTimeUpdates_=0,headerQuotaUpdates_=0;
   int rowWidths_[7]{};
   bool ready_=false,playing_=false,lyricDirty_=true,transition_=false;
   int index_=-2,anchor_=-2;float from_=-1,visual_=-1;
