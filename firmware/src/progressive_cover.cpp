@@ -1,4 +1,5 @@
 #include "progressive_cover.h"
+#include "ui_config.h"
 #include <esp_heap_caps.h>
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_JPEG
@@ -18,7 +19,7 @@ bool drawProgressiveCover(DisplayDriver& display,const uint8_t* data,size_t leng
   int w=0,h=0,channels=0;
   uint8_t* pixels=stbi_load_from_memory(data,length,&w,&h,&channels,3);
   if(!pixels)return false;
-  float scale=min(160.0f/w,160.0f/h);
+  float scale=min(float(ui_config::kCoverWidth)/w,float(ui_config::kCoverHeight)/h);
   int outW=max(1,int(w*scale)),outH=max(1,int(h*scale));
   lgfx::LGFX_Sprite scaled(&display);scaled.setPsram(true);scaled.setColorDepth(24);
   if(!scaled.createSprite(outW,outH)){stbi_image_free(pixels);return false;}
@@ -29,6 +30,7 @@ bool drawProgressiveCover(DisplayDriver& display,const uint8_t* data,size_t leng
     }
     yield();
   }
-  display.fillRect(0,0,160,160,0);scaled.pushSprite((160-outW)/2,(160-outH)/2);
+  display.fillRect(ui_config::kCoverX,ui_config::kCoverY,ui_config::kCoverWidth,ui_config::kCoverHeight,ui_config::kCoverBackground);
+  scaled.pushSprite(ui_config::kCoverX+(ui_config::kCoverWidth-outW)/2,ui_config::kCoverY+(ui_config::kCoverHeight-outH)/2);
   scaled.deleteSprite();stbi_image_free(pixels);return true;
 }

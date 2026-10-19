@@ -1,268 +1,162 @@
-#include "hub_console.h"
 #include "ui_renderer.h"
 #include "font_fallback.h"
 #include "ui_config.h"
-
+#include "clock_app.h"
+#include "hub_console.h"
+#include <ArduinoJson.h>
+#include <time.h>
+#include <math.h>
 namespace {
-// Remove a whole UTF-8 codepoint, never leave a partial Chinese character.
-void removeLastCodepoint(String& text) {
-  if (text.isEmpty()) return;
-  size_t start = text.length() - 1;
-  while (start > 0 && (static_cast<uint8_t>(text[start]) & 0xC0) == 0x80) --start;
-  text.remove(start);
+constexpr uint16_t white=0xffff,ink=0x18c5,muted=0x8410,edge=0xd69a;
+constexpr uint16_t blue=0x43d8,orange=0xfbe0,lyricBg=0xf7bf,purple=0x6afb,pale=0xef5f;
+constexpr int lx=162,ly=100,lw=296,lh=184,pitch=42;
+template<class G> void txt(G& d,const String& s,int x,int y,uint16_t fg=ink,uint16_t bg=white,bool big=false){
+ d.setTextDatum(lgfx::textdatum_t::top_left);d.setTextWrap(false,false);
+ font_fallback::draw(d,s.c_str(),x,y,!big,false,fg,bg);
 }
-
-uint16_t blend565(uint16_t background, uint16_t foreground, uint8_t alpha) {
-  const uint8_t inverse = 15 - alpha;
-  const uint16_t red = (((background >> 11) & 0x1F) * inverse +
-                        ((foreground >> 11) & 0x1F) * alpha) / 15;
-  const uint16_t green = (((background >> 5) & 0x3F) * inverse +
-                          ((foreground >> 5) & 0x3F) * alpha) / 15;
-  const uint16_t blue = ((background & 0x1F) * inverse +
-                         (foreground & 0x1F) * alpha) / 15;
-  return static_cast<uint16_t>((red << 11) | (green << 5) | blue);
+template<class G> void center(G& d,const String& s,int x,int y,uint16_t fg=ink,uint16_t bg=white){
+ int w=font_fallback::measure(d,s.c_str(),true,false);txt(d,s,x-w/2,y,fg,bg);
+}
+uint32_t bounce(uint32_t age,int overflow){
+ if(overflow<=0||age<900)return 0;
+ uint32_t travel=uint32_t(overflow)*1000/26,period=2*travel+1800,t=(age-900)%period;
+ if(t<travel)return t*26/1000;if(t<travel+900)return overflow;
+ if(t<2*travel+900)return overflow-(t-travel-900)*26/1000;return 0;
 }
 }
-
-void UiRenderer::drawCoverPlaceholder(const char* label) {
-  using namespace ui_config;
-  display_.fillRect(0, 0, kCoverWidth, kCoverHeight, kCoverBackground);
-  display_.drawCircle(80, 66, 38, kAccent);
-  display_.drawCircle(80, 66, 28, kMuted);
-  display_.fillCircle(80, 66, 6, kAccent);
-  display_.setFont(&lgfx::fonts::Font0);
-  display_.setTextSize(1);
-  display_.setTextColor(kMuted, kCoverBackground);
-  display_.drawCenterString(label, 80, 127);
+void UiRenderer::layout(){
+ release();display_.clearClipRect();display_.fillScreen(white);
+ display_.drawRoundRect(150,34,320,278,14,edge);
+ display_.fillRoundRect(158,96,304,192,12,lyricBg);
+ display_.drawRoundRect(10,254,128,58,10,edge);center(display_,"ChatGPT",74,261);
+ display_.fillRoundRect(10,36,128,128,8,ui_config::kCoverBackground);
+ display_.drawCircle(74,91,31,blue);display_.drawCircle(74,91,21,white);display_.fillCircle(74,91,4,blue);
+ viewport_.setPsram(true);viewport_.setColorDepth(16);ready_=viewport_.createSprite(lw,lh)!=nullptr;
+ second_=-1;activityKey_="";lastProgress_=UINT32_MAX;playing_=true;controls(false);header();activity();
 }
-
-String UiRenderer::fitText(const char* text, int width, bool small, bool bold, float scale) {
-  String result(text);
-  if (font_fallback::measure(display_, result.c_str(), small, bold, scale) <= width) {
-    return result;
+void UiRenderer::metadata(const String& value,lgfx::LGFX_Sprite& sprite,bool big){
+ sprite.deleteSprite();sprite.setPsram(true);sprite.setColorDepth(16);
+ int width=max(lw,font_fallback::measure(display_,value.c_str(),!big,false));width=min(width,4096);
+ if(!sprite.createSprite(width,big?28:20))return;
+ sprite.fillSprite(white);int measured=font_fallback::measure(sprite,value.c_str(),!big,false);
+ txt(sprite,value,measured<=lw?(lw-measured)/2:0,0,big?ink:muted,white,big);
+}
+void UiRenderer::drawIdle(const char* status,const String&){
+ layout();metadata(status,title_,true);metadata("等待电脑音乐播放",artist_,false);metadataAt_=millis();metadataTick(metadataAt_);
+ if(ready_){viewport_.fillSprite(lyricBg);center(viewport_,"播放后显示歌词",lw/2,80,muted,lyricBg);viewport_.pushSprite(lx,ly);}
+ drawProgress(0,0);
+}
+void UiRenderer::drawTrack(const TrackState& state){
+ if(!ready_)layout();
+ metadata(state.title,title_,true);metadata(state.artist,artist_,false);metadataAt_=millis();metadataTick(metadataAt_);
+ index_=anchor_=-2;revision_=UINT32_MAX;visual_=from_=-1;transition_=false;lyricDirty_=true;
+ display_.fillRoundRect(10,36,128,128,8,ui_config::kCoverBackground);
+ display_.drawCircle(74,94,28,blue);display_.fillCircle(74,94,4,white);
+ controls(state.playing);lastProgress_=UINT32_MAX;drawProgress(0,state.durationMs);
+}
+void UiRenderer::metadataTick(uint32_t now){
+ display_.setClipRect(lx,42,lw,28);if(title_.width())title_.pushSprite(lx-int(bounce(now-metadataAt_,title_.width()-lw)),42);
+ display_.setClipRect(lx,73,lw,20);if(artist_.width())artist_.pushSprite(lx-int(bounce(now-metadataAt_,artist_.width()-lw)),73);
+ display_.clearClipRect();lastMetadata_=now;
+}
+void UiRenderer::header(){
+ time_t epoch=time(nullptr);tm local{};localtime_r(&epoch,&local);display_.fillRect(6,5,468,24,white);
+ if(epoch>=1704067200){
+  char date[20],clock[12];strftime(date,sizeof(date),"%Y-%m-%d",&local);strftime(clock,sizeof(clock),"%H:%M:%S",&local);
+  const char* days[]={"日","一","二","三","四","五","六"};
+  txt(display_,date,10,8);txt(display_,clock,98,8);txt(display_,String("星期")+days[local.tm_wday],170,8);
+ }else txt(display_,"等待校时",10,8,muted);
+ auto info=ClockApp::musicInfo();txt(display_,"五小时额度",246,8);
+ display_.fillRoundRect(332,12,88,8,3,0xe71c);
+ if(info.quotaFresh){int width=roundf(constrain(info.remaining,0.f,100.f)*.88f);if(width)display_.fillRoundRect(332,12,width,8,3,blue);}
+ txt(display_,info.quotaFresh?String(info.remaining,0)+"%":"--",430,8,info.quotaFresh?ink:muted);second_=epoch;
+}
+void UiRenderer::activity(){
+ auto info=ClockApp::musicInfo();String key=info.online?(info.busy?"running":"idle"):"offline";
+ if(key==activityKey_)return;activityKey_=key;
+ uint16_t bg=info.online&&info.busy?purple:pale,fg=info.online&&info.busy?white:0x5a93;
+ display_.fillRoundRect(19,284,110,21,6,bg);
+ if(info.online&&info.busy)display_.drawCircle(30,294,3,fg);else display_.drawRect(27,291,6,6,fg);
+ center(display_,info.online?(info.busy?"运行中":"空闲中"):"未连接",82,286,fg,bg);
+}
+void UiRenderer::controls(bool playing){
+ if(playing_==playing)return;playing_=playing;display_.fillRect(10,209,128,34,white);
+ display_.fillTriangle(21,225,36,214,36,236,blue);display_.fillRect(19,214,3,22,blue);
+ if(playing)display_.fillRoundRect(65,216,18,18,2,blue);else display_.fillTriangle(65,214,65,236,84,225,blue);
+ display_.fillTriangle(127,225,112,214,112,236,blue);display_.fillRect(127,214,3,22,blue);
+}
+const char* UiRenderer::controlAt(int x,int y,bool playing) const {
+ if(y<205||y>=248||x<8||x>=140)return nullptr;
+ return x<52?"previous":x<96?(playing?"pause":"play"):"next";
+}
+void UiRenderer::controlPending(uint32_t id,uint32_t now){pending_=id;pendingAt_=now;feedback_="等待播放器";messageUntil_=now+5000;}
+void UiRenderer::controlResult(uint32_t id,bool success,uint32_t now){if(id!=pending_)return;pending_=0;feedback_=success?"":"播放器未响应";messageUntil_=now+4000;}
+void UiRenderer::drawProgress(uint32_t position,uint32_t duration){
+ uint32_t seconds=position/1000;if(seconds==lastProgress_)return;lastProgress_=seconds;
+ display_.fillRoundRect(10,177,128,6,3,0xe71c);
+ if(duration){int width=uint64_t(min(position,duration))*128/duration;if(width)display_.fillRoundRect(10,177,width,6,3,orange);}
+ char value[32];snprintf(value,sizeof(value),"%02lu:%02lu/%02lu:%02lu",(unsigned long)(seconds/60),(unsigned long)(seconds%60),(unsigned long)(duration/60000),(unsigned long)(duration/1000%60));
+ display_.fillRect(10,189,128,17,white);center(display_,value,74,189,muted);
+}
+void UiRenderer::buildRows(const LyricsEngine& lyrics,int index){
+ anchor_=index;
+ for(int slot=0;slot<7;++slot){
+  rows_[slot].deleteSprite();String value=lyrics.textAt(index+slot-3);if(value.isEmpty()&&slot==3)value="♪";
+  String first=value,second;int newline=value.indexOf('\n');
+  if(newline>=0){first=value.substring(0,newline);second=value.substring(newline+1);second.replace("\n"," / ");}
+  else if(font_fallback::measure(display_,first.c_str(),true,false)>lw-12){
+   String line;size_t at=0;while(at<first.length()){
+    auto cp=font_fallback::decode(first.c_str()+at);if(!cp.length)break;String candidate=line+first.substring(at,at+cp.length);
+    if(font_fallback::measure(display_,candidate.c_str(),true,false)>lw-12)break;line=candidate;at+=cp.length;
+   }second=first.substring(at);first=line;
   }
-  const char* suffix = "...";
-  const int available = width - font_fallback::measure(display_, suffix, small, bold, scale);
-  while (!result.isEmpty() &&
-         font_fallback::measure(display_, result.c_str(), small, bold, scale) > available) {
-    removeLastCodepoint(result);
-  }
-  return result + suffix;
+  int width=max(font_fallback::measure(display_,first.c_str(),true,false),font_fallback::measure(display_,second.c_str(),true,false));
+  rowWidths_[slot]=width;rows_[slot].setPsram(true);rows_[slot].setColorDepth(16);
+  if(!rows_[slot].createSprite(min(2048,max(lw,width)),40))continue;
+  rows_[slot].fillSprite(lyricBg);uint16_t color=slot==3?0x2210:0x94b2;
+  int fw=font_fallback::measure(rows_[slot],first.c_str(),true,false),sw=font_fallback::measure(rows_[slot],second.c_str(),true,false);
+  txt(rows_[slot],first,fw<=lw?(lw-fw)/2:0,second.length()?2:12,color,lyricBg);
+  if(second.length())txt(rows_[slot],second,sw<=lw?(lw-sw)/2:0,21,color,lyricBg);
+ }
 }
-
-void UiRenderer::drawLine(const char* text, int y, const lgfx::IFont* font,
-                          uint16_t color, bool centered) {
-  display_.setFont(font);
-  display_.setTextSize(1);
-  const bool small = font == &lgfx::fonts::efontCN_16;
-  const bool bold = !small;
-  const float scale = small ? 1.0f : 1.1f;
-  const String fitted = fitText(text, ui_config::kTextWidth, small, bold, scale);
-  const int fittedWidth = font_fallback::measure(display_, fitted.c_str(), small, bold, scale);
-  const int x = centered ? (display_config::kWidth - fittedWidth) / 2
-                         : ui_config::kMargin;
-  font_fallback::draw(display_, fitted.c_str(), x, y, small, bold, color,
-                      ui_config::kBackground, scale);
+void UiRenderer::renderLyrics(const LyricsEngine& lyrics,uint32_t position,uint32_t now){
+ int target=lyrics.indexAt(position);bool changed=target!=index_||revision_!=lyrics.revision();
+ if(changed){
+  bool adjacent=revision_==lyrics.revision()&&index_>=-1&&target==index_+1;
+  from_=visual_;index_=target;transition_=adjacent;transitionAt_=now;if(!adjacent)visual_=target;
+  revision_=lyrics.revision();buildRows(lyrics,target);lyricDirty_=true;
+ }
+ if(transition_){float t=min(1.f,float(now-transitionAt_)/480.f);float ease=t*t*(3-2*t);visual_=from_+(index_-from_)*ease;if(t>=1){visual_=index_;transition_=false;}lyricDirty_=true;}
+ int overflow=rowWidths_[3]-lw;bool horizontal=overflow>0;
+ if(!ready_||now-lastFrame_<50||(!lyricDirty_&&!horizontal))return;
+ lastFrame_=now;viewport_.fillSprite(lyricBg);
+ if(!lyrics.count())center(viewport_,"暂无歌词",lw/2,82,muted,lyricBg);
+ else for(int slot=0;slot<7;++slot){
+  if(!rows_[slot].width())continue;int y=roundf(72+(anchor_+slot-3-visual_)*pitch);
+  int x=slot==3?-int(bounce(position>=lyrics.timestampAt(index_)?position-lyrics.timestampAt(index_):0,overflow)):0;
+  rows_[slot].pushSprite(&viewport_,x,y);
+ }
+ viewport_.pushSprite(lx,ly);lyricDirty_=false;++animatedFrames_;
 }
-
-void UiRenderer::drawMetadataLine(const char* text, int y, const lgfx::IFont* font,
-                                  uint16_t color) {
-  using namespace ui_config;
-  display_.fillRect(kMetadataX, y, kMetadataWidth, 31, kBackground);
-  const bool small = font == &lgfx::fonts::efontCN_16;
-  const bool bold = !small;
-  const float scale = small ? 1.0f : 1.1f;
-  const String fitted = fitText(text, kMetadataWidth, small, bold, scale);
-  font_fallback::draw(display_, fitted.c_str(), kMetadataX, y, small, bold, color,
-                      kBackground, scale);
+void UiRenderer::tick(const TrackState& state,const LyricsEngine& lyrics,uint32_t now){
+ if(time(nullptr)!=second_)header();activity();controls(state.active&&state.playing);
+ if(now-lastMetadata_>=80&&(title_.width()>lw||artist_.width()>lw))metadataTick(now);
+ drawProgress(state.estimatedPosition(now),state.durationMs);if(state.active)renderLyrics(lyrics,state.estimatedPosition(now),now);
+ if(pending_&&now-pendingAt_>5000){pending_=0;feedback_="播放器未响应";messageUntil_=now+3000;}
+ String message=static_cast<int32_t>(messageUntil_-now)>0?feedback_:"";
+ if(shownFeedback_!=message){display_.fillRect(160,292,236,18,white);txt(display_,message,166,294,muted);shownFeedback_=message;}
 }
-
-void UiRenderer::drawDemo(bool longText) {
-  using namespace ui_config;
-  const uint32_t started = micros();
-  display_.setTextDatum(lgfx::textdatum_t::top_left);
-  display_.setTextWrap(false, false);
-  display_.fillScreen(kBackground);
-  // A procedural placeholder avoids a JPEG buffer before the cover phase.
-  drawCoverPlaceholder("MUSIC DISPLAY / UI DEMO");
-
-  const char* title = longText
-      ? "这是一首用于测试超长中文歌名自动缩小以及安全省略的演示歌曲标题"
-      : "窗边的晚风";
-  drawMetadataLine(title, kHeaderTitleY, &lgfx::fonts::efontCN_24, kText);
-  drawMetadataLine("演示歌手", kHeaderArtistY, &lgfx::fonts::efontCN_16, kMuted);
-  drawMetadataLine("方形封面布局", kHeaderAlbumY, &lgfx::fonts::efontCN_16, kMuted);
-  // Original demo text; this phase does not read real playback or lyrics.
-  drawLine("窗外的灯慢慢亮起来", kPreviousY, &lgfx::fonts::efontCN_16, kMuted, true);
-  drawLine(longText ? "这是一行用于检验中文歌词超出屏幕宽度后是否能完整按字符截断的文字"
-                    : "把今天的心事交给晚风",
-           kCurrentY, &lgfx::fonts::efontCN_24, kText, true);
-  drawLine("明天还有新的旋律", kNextY, &lgfx::fonts::efontCN_16, kMuted, true);
-  display_.fillRect(0, kProgressY, display_config::kWidth, kProgressHeight, kProgressTrack);
-  display_.fillRect(0, kProgressY, display_config::kWidth * 2 / 5, kProgressHeight, kAccent);
-  hubConsole().printf("[INFO][UI] static_demo=%s draw_us=%u title_width=%d\n",
-                longText ? "long" : "normal", static_cast<uint32_t>(micros() - started),
-                kTextWidth);
+void UiRenderer::printStatus() const{
+ JsonDocument doc;doc["layout"]="music-v2";doc["lyric_index"]=index_;doc["visual_index"]=visual_;doc["animating"]=transition_;
+ doc["rendered_frames"]=animatedFrames_;doc["pending_control"]=pending_;doc["feedback"]=feedback_;doc["playing"]=playing_;
+ hubConsole().print("MUSIC_STATUS ");serializeJson(doc,hubConsole());hubConsole().println();
 }
-
-void UiRenderer::drawIdle(const char* status, const String& ip) {
-  using namespace ui_config;
-  display_.setTextDatum(lgfx::textdatum_t::top_left);
-  display_.setTextWrap(false, false);
-  display_.fillScreen(kBackground);
-  bitmapLyricsActive_ = false;
-  marquee_.clear(false);
-  drawCoverPlaceholder("MUSIC DISPLAY");
-  drawMetadataLine(status, kHeaderTitleY, &lgfx::fonts::efontCN_24, kText);
-  drawMetadataLine(ip.isEmpty() ? "Wi-Fi：等待配置" : "Wi-Fi：已连接",
-                   kHeaderArtistY, &lgfx::fonts::efontCN_16, kMuted);
-  drawMetadataLine(ip.isEmpty() ? "等待网络" : ip.c_str(),
-                   kHeaderAlbumY, &lgfx::fonts::efontCN_16, kMuted);
-  drawLine("播放音乐后自动显示歌词", kCurrentY,
-           &lgfx::fonts::efontCN_16, kMuted, true);
-  drawProgress(0, 0);
+void UiRenderer::release(){
+ viewport_.deleteSprite();title_.deleteSprite();artist_.deleteSprite();for(auto& row:rows_)row.deleteSprite();ready_=false;
+ index_=anchor_=-2;revision_=UINT32_MAX;visual_=from_=-1;transition_=false;lyricDirty_=true;pending_=0;feedback_=shownFeedback_="";animatedFrames_=0;
 }
-
-void UiRenderer::drawProvisioning(const String& ssid, const char* password,
-                                  const String& ip) {
-  using namespace ui_config;
-  display_.setTextDatum(lgfx::textdatum_t::top_left);
-  display_.setTextWrap(false, false);
-  display_.fillScreen(kBackground);
-  bitmapLyricsActive_ = false;
-  marquee_.clear(false);
-  drawCoverPlaceholder("WI-FI SETUP");
-  drawMetadataLine("Wi-Fi 配网模式", kHeaderTitleY, &lgfx::fonts::efontCN_24, kText);
-  drawMetadataLine(ssid.c_str(), kHeaderArtistY, &lgfx::fonts::efontCN_16, kMuted);
-  const String passwordLine = String("密码：") + password;
-  drawMetadataLine(passwordLine.c_str(), kHeaderAlbumY, &lgfx::fonts::efontCN_16, kMuted);
-  drawLine("连接热点后打开浏览器", kPreviousY,
-           &lgfx::fonts::efontCN_16, kMuted, true);
-  drawLine(ip.c_str(), kCurrentY, &lgfx::fonts::efontCN_24, kText, true);
-  drawLine("也可用启动器通过 USB 配网", kNextY,
-           &lgfx::fonts::efontCN_16, kMuted, true);
-  drawProgress(0, 0);
-}
-
-void UiRenderer::drawTrack(const TrackState& state) {
-  using namespace ui_config;
-  const uint32_t started = micros();
-  bitmapLyricsActive_ = false;
-  marquee_.clear(false);
-  display_.fillRect(kMargin,kPreviousY,kTextWidth,kLyricsHeight,kBackground);
-  drawMetadataLine(state.title.c_str(),kHeaderTitleY,&lgfx::fonts::efontCN_24,kText);
-  drawMetadataLine(state.artist.c_str(),kHeaderArtistY,&lgfx::fonts::efontCN_16,kMuted);
-  drawMetadataLine(state.album.c_str(),kHeaderAlbumY,&lgfx::fonts::efontCN_16,kMuted);
-  drawCoverPlaceholder("USB MUSIC");
-  drawProgress(0,state.durationMs);
-  hubConsole().printf("[PERF] device_render_track_us=%u\n",static_cast<uint32_t>(micros()-started));
-}
-
-void UiRenderer::drawLyricsPreview(const TrackState& state) {
-  using namespace ui_config;
-  display_.fillRect(kMargin, kPreviousY, kTextWidth, kLyricsHeight, kBackground);
-  if (!state.lyricLineCount) {
-    if (marquee_.ready()) marquee_.setLine("暂无歌词", false, millis());
-    else drawLine("暂无歌词", kCurrentY, &lgfx::fonts::efontCN_16, kText, true);
-    return;
-  }
-  drawLine(state.lyricPreview[0].c_str(), kPreviousY, &lgfx::fonts::efontCN_16, kMuted, true);
-  const String current = state.lyricLineCount > 1 ? state.lyricPreview[1] : String("♪");
-  if (marquee_.ready()) marquee_.setLine(current, state.playing, millis());
-  else drawLine(current.c_str(), kCurrentY, &lgfx::fonts::efontCN_16, kText, true);
-  drawLine(state.lyricLineCount > 2 ? state.lyricPreview[2].c_str() : "",
-           kNextY, &lgfx::fonts::efontCN_16, kMuted, true);
-}
-
-void UiRenderer::drawLyricsWindow(const String& previous, const String& current,
-                                  const String& next, bool hasLyrics,
-                                  bool playing, uint32_t now) {
-  using namespace ui_config;
-  if (bitmapLyricsActive_) return;
-  display_.fillRect(kMargin, kPreviousY, kTextWidth, kLyricsHeight, kBackground);
-  if (!hasLyrics) {
-    if (marquee_.ready()) marquee_.setLine("暂无歌词", false, now);
-    else drawLine("暂无歌词", kCurrentY, &lgfx::fonts::efontCN_16, kText, true);
-    return;
-  }
-  drawLine(previous.c_str(), kPreviousY, &lgfx::fonts::efontCN_16, kMuted, true);
-  const String highlighted = current.isEmpty() ? String("♪") : current;
-  if (marquee_.ready()) marquee_.setLine(highlighted, playing, now);
-  else drawLine(highlighted.c_str(), kCurrentY, &lgfx::fonts::efontCN_16, kText, true);
-  drawLine(next.c_str(), kNextY, &lgfx::fonts::efontCN_16, kMuted, true);
-}
-
-bool UiRenderer::drawLyricsBitmap(char role, const uint8_t* alpha4, size_t length,
-                                  int width, int height, bool playing, uint32_t now) {
-  using namespace ui_config;
-  if (role == 't' || role == 'a' || role == 'b')
-    return drawMetadataBitmap(role, alpha4, length, width, height);
-  bitmapLyricsActive_ = true;
-  if (role == 'c') return marquee_.setBitmap(alpha4, length, width, height, playing, now);
-  if (role == 'p') {
-    marquee_.drawBitmapLine(alpha4, length, width, height, kPreviousY, kMuted, true);
-    return true;
-  }
-  if (role == 'n') {
-    marquee_.drawBitmapLine(alpha4, length, width, height, kNextY, kMuted, true);
-    return true;
-  }
-  return false;
-}
-
-bool UiRenderer::drawMetadataBitmap(char role, const uint8_t* alpha4, size_t length,
-                                    int width, int height) {
-  using namespace ui_config;
-  if (role == 't')
-    return renderMetadataBitmap(40, alpha4, length,
-                                width, height, kHeaderTitleY, kText);
-  if (role == 'a')
-    return renderMetadataBitmap(28, alpha4, length,
-                                width, height, kHeaderArtistY, kMuted);
-  if (role == 'b')
-    return renderMetadataBitmap(28, alpha4, length,
-                                width, height, kHeaderAlbumY, kMuted);
-  return false;
-}
-
-bool UiRenderer::renderMetadataBitmap(int spriteHeight, const uint8_t* alpha4, size_t length,
-                                      int width, int height, int targetY, uint16_t color) {
-  using namespace ui_config;
-  if (!alpha4 || width <= 0 || width > kMetadataWidth || height <= 0 ||
-      height > spriteHeight || length != (static_cast<size_t>(width) * height + 1) / 2)
-    return false;
-  // Metadata is static between updates. A scanline buffer saves the 39 KiB
-  // retained by title/artist sprites, leaving room for long lyric JSON uploads.
-  uint16_t row[kMetadataWidth];
-  const int yOffset = max(0, (spriteHeight - height) / 2);
-  const bool previousSwap=display_.getSwapBytes();
-  display_.setSwapBytes(true);
-  for (int y = 0; y < spriteHeight; ++y) {
-    for (int x = 0; x < kMetadataWidth; ++x) {
-      uint8_t alpha=0;
-      const int sourceY=y-yOffset;
-      if (x<width && sourceY>=0 && sourceY<height) {
-        const size_t index=static_cast<size_t>(sourceY)*width+x;
-        const uint8_t packed=alpha4[index/2];
-        alpha=(index&1) ? packed&0x0F : packed>>4;
-      }
-      row[x]=alpha ? blend565(kBackground,color,alpha) : kBackground;
-    }
-    display_.pushImage(kMetadataX,targetY+y,kMetadataWidth,1,row);
-  }
-  display_.setSwapBytes(previousSwap);
-  return true;
-}
-
-void UiRenderer::drawProgress(uint32_t positionMs, uint32_t durationMs) {
-  using namespace ui_config;
-  display_.fillRect(0, kProgressY, display_config::kWidth, kProgressHeight, kProgressTrack);
-  if (!durationMs) return;
-  const uint32_t width = static_cast<uint64_t>(min(positionMs, durationMs)) *
-                         display_config::kWidth / durationMs;
-  if (width) display_.fillRect(0, kProgressY, width, kProgressHeight, kAccent);
-}
-
-void UiRenderer::release() {
-  bitmapLyricsActive_=false;
-}
+void UiRenderer::drawDemo(bool){drawIdle("音乐屏","");}
+void UiRenderer::drawProvisioning(const String& ssid,const char*,const String& ip){drawIdle(ssid.c_str(),ip);}
+void UiRenderer::drawLyricsPreview(const TrackState&){lyricDirty_=true;}
+void UiRenderer::drawLyricsWindow(const String&,const String&,const String&,bool,bool,uint32_t){lyricDirty_=true;}
+bool UiRenderer::drawLyricsBitmap(char,const uint8_t*,size_t,int,int,bool,uint32_t){return false;}

@@ -21,6 +21,7 @@ else:
 from clock_sync import AccountClient
 from dashboard_data import Activity,weather,workbuddy
 from usb_link import UsbLink
+from music_controls import ControlBridge,playback_payload
 
 RUNTIME=Path(os.environ.get("LOCALAPPDATA",Path.home()))/"DeskHub/runtime"
 
@@ -55,7 +56,7 @@ def main():
         exe=ROOT/"media/DeskHubMedia.exe"
         while not shutdown.is_set():
             try:
-                media_process=subprocess.Popen([str(exe)],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,
+                media_process=subprocess.Popen([str(exe)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,
                     text=True,encoding="utf-8-sig",creationflags=0x08000000 if os.name=="nt" else 0)
                 for line in media_process.stdout:
                     if shutdown.is_set():break
@@ -78,6 +79,7 @@ def main():
                 if shutdown.wait(60):break
         finally:client.close()
     threading.Thread(target=media_reader,daemon=True).start()
+    controls=ControlBridge(lambda:media_process);control_results=[]
     threading.Thread(target=quota_reader,daemon=True).start()
     dashboard_queue=queue.Queue(maxsize=2)
     def dashboard_reader():
@@ -102,6 +104,8 @@ def main():
             while not media_queue.empty():
                 item=media_queue.get_nowait();kind=item.get("kind")
                 if kind=="playback":latest=item
+                elif kind=="control_result":control_results.append(item)
+                elif kind=="cache_status":logging.info('Music cache: cover_hit=%s lyrics_hit=%s',item.get('cover_hit'),item.get('lyrics_hit'))
                 elif kind=="idle":latest=None
                 elif kind in ("lyrics","cover"):
                     tid=item.get("track_id")
@@ -115,6 +119,7 @@ def main():
                     logging.info("USB connected: %s",link.device.port)
                 status=link.status();app=status["app"]
                 if status["uptime"]<last_uptime:
+                    controls.reset()
                     last_clock=last_dashboard=0;sent_track=None;sent_lyrics=sent_cover=None
                 last_uptime=status["uptime"]
                 if app!=last_app:
@@ -126,7 +131,15 @@ def main():
                     packet={**dashboard,'activity':activity.scan(),'music':{'title':latest['title'] if latest and latest['playing'] else '', 'playing':bool(latest and latest['playing'])}}
                     if not link.packet('dashboard',packet):raise RuntimeError('Dashboard rejected')
                     last_dashboard=now
-                link.events.clear()
+                while link.events:
+                    result=controls.dispatch(link.events.popleft())
+                    if result is not None:control_results.append(result)
+                if app=='music':
+                    while control_results:
+                        result=control_results.pop(0)
+                        link.packet('control_result',result)
+                        logging.info('Music control result: %s success=%s',result.get('command'),result.get('success'))
+                else:control_results.clear()
                 if app=="music":
                     if latest is None:
                         if not idle:link.packet("idle",{});idle=True;sent_track=None
@@ -137,7 +150,7 @@ def main():
                                 sent_track=tid;sent_lyrics=sent_cover=None
                                 logging.info("Music text metadata forwarded")
                         if sent_track==tid and now-last_playback>1:
-                            link.packet("playback",{k:latest[k] for k in ("track_id","position_ms","duration_ms","playing")});last_playback=now
+                            link.packet("playback",playback_payload(latest,int(time.time()*1000)));last_playback=now
                         track_assets=assets.get(tid,{})
                         if "lyrics" in track_assets and sent_lyrics!=tid:
                             value=track_assets["lyrics"]

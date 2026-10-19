@@ -62,7 +62,7 @@ bool LyricsEngine::parse(const String& lrc, String& error) {
         tagCursor = close + 1;
       }
       const String text = sanitizeUtf8(row.substring(tagCursor), 192);
-      if (!text.isEmpty()) {
+      if (!timestamps.empty()) {
         for (uint32_t timestamp : timestamps) {
           if (parsed.size() >= kMaxLyricLines) break;
           parsed.push_back({timestamp, text});
@@ -82,7 +82,18 @@ bool LyricsEngine::parse(const String& lrc, String& error) {
                    [](const LyricLine& a, const LyricLine& b) {
                      return a.timestampMs < b.timestampMs;
                    });
-  lines_.swap(parsed);
+  // Group original/translated lines so indexAt cannot skip the original.
+  std::vector<LyricLine> grouped;
+  grouped.reserve(parsed.size());
+  for(auto& line:parsed) {
+    if(!grouped.empty()&&grouped.back().timestampMs==line.timestampMs) {
+      if(line.text.length()&&grouped.back().text!=line.text) {
+        if(grouped.back().text.length())grouped.back().text+='\n';
+        grouped.back().text+=line.text;
+      }
+    } else grouped.push_back(std::move(line));
+  }
+  lines_.swap(grouped);
   ++revision_;
   error = "";
   return true;

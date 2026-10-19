@@ -13,6 +13,7 @@
 #include "usb_packets.h"
 #include <ArduinoJson.h>
 #include "progressive_cover.h"
+#include "ui_config.h"
 
 DisplayDriver sharedDisplay;
 namespace {
@@ -27,6 +28,7 @@ bool homeDirty=true, mdns=false, touchDown=false, bootDown=false, bootLong=false
 uint32_t touchSamples=0;
 uint32_t lastTouch=0, downAt=0, bootAt=0, lastButton=0, lastStatus=0;
 int downX=0,downY=0,lastX=0,lastY=0;
+uint32_t controlSequence=0,lastControl=0;
 String lastHomeStatus;
 constexpr uint16_t bg=0xFFFF, card=0xF7BE, text=0x0000, muted=0x8410;
 
@@ -74,12 +76,13 @@ void drawHome() {
 }
 
 void drawHomeButton() {
-  sharedDisplay.fillRoundRect(408,289,64,25,6,0x2945);
+  const uint16_t buttonBg=activeApp==AppId::Music?0xef5f:0x2945;
+  sharedDisplay.fillRoundRect(408,289,64,activeApp==AppId::Music?20:25,6,buttonBg);
   sharedDisplay.setFont(&lgfx::fonts::efontCN_16);
   sharedDisplay.setTextDatum(lgfx::textdatum_t::top_left);
   sharedDisplay.setTextSize(1);
-  sharedDisplay.setTextColor(0xFFFF,0x2945);
-  sharedDisplay.drawString("主页",423,293);
+  sharedDisplay.setTextColor(activeApp==AppId::Music?0x5a93:0xFFFF,buttonBg);
+  sharedDisplay.drawString("应用",423,293);
 }
 
 void selectApp(AppId next) {
@@ -97,7 +100,6 @@ void selectApp(AppId next) {
   sharedDisplay.setTextWrap(false,false);
   if (next==AppId::Clock) ClockApp::enter();
   else if (next==AppId::Music) {
-    marquee.begin();
     musicUi.drawIdle("等待电脑音乐同步",WiFi.status()==WL_CONNECTED ? WiFi.localIP().toString() : String());
     api.setForeground(true);
   } else if (next==AppId::Codex) {
@@ -112,6 +114,15 @@ void dispatchGesture(int x,int y,int dx,int dy,uint32_t held) {
   const bool tap=abs(dx)<10 && abs(dy)<10;
   if(activeApp==AppId::Wifi) {WifiSettings::gesture(x,y,dx,dy);return;}
   const bool buttonTap=abs(dx)<=28 && abs(dy)<=28;
+  if(activeApp==AppId::Music&&buttonTap&&held<900) {
+    const char* start=musicUi.controlAt(downX,downY,track.playing);
+    const char* end=musicUi.controlAt(x,y,track.playing);
+    if(start&&end&&!strcmp(start,end)&&millis()-lastControl>=300) {
+      lastControl=millis();uint32_t id=++controlSequence;musicUi.controlPending(id,lastControl);
+      hubConsole().printf("USB_EVENT {\"kind\":\"music_control\",\"command\":\"%s\",\"id\":%lu}\n",start,(unsigned long)id);
+      return;
+    }
+  }
   // Invisible target over the central time digits; no extra rendering layer.
   if (activeApp==AppId::Clock) {
     if (VideoApp::playing()) {
@@ -188,6 +199,7 @@ void printShellTouchStatus() {
   d["touch_irq_used"]=sharedDisplay.touch()->config().pin_int;
   hubConsole().print("TOUCH_STATUS ");serializeJson(d,hubConsole());hubConsole().println();
 }
+void printMusicStatus(){musicUi.printStatus();}
 void injectShellGesture(int x0,int y0,int x1,int y1) {
   downX=x0;downY=y0;dispatchGesture(x1,y1,x1-x0,y1-y0,100);
 }
@@ -209,13 +221,14 @@ bool receiveUsbPacket(const String& kind,const uint8_t* data,size_t length) {
       w=jw;h=jh;
     }
     if(!w || !h || w>4096 || h>4096) return false;
-    float scale=min(160.0f/w,160.0f/h);
-    sharedDisplay.fillRect(0,0,160,160,0);
-    int x=(160-int(w*scale))/2,y=(160-int(h*scale))/2;
-    return png ? sharedDisplay.drawPng(data,length,x,y,160,160,0,0,scale,scale) :
-                 sharedDisplay.drawJpg(data,length,x,y,160,160,0,0,scale,scale);
+    float scale=min(float(ui_config::kCoverWidth)/w,float(ui_config::kCoverHeight)/h);
+    sharedDisplay.fillRect(ui_config::kCoverX,ui_config::kCoverY,ui_config::kCoverWidth,ui_config::kCoverHeight,ui_config::kCoverBackground);
+    int x=ui_config::kCoverX+(ui_config::kCoverWidth-int(w*scale))/2,y=ui_config::kCoverY+(ui_config::kCoverHeight-int(h*scale))/2;
+    return png ? sharedDisplay.drawPng(data,length,x,y,128,128,0,0,scale,scale) :
+                 sharedDisplay.drawJpg(data,length,x,y,128,128,0,0,scale,scale);
   }
   JsonDocument d;if(deserializeJson(d,data,length)) return false;
+  if(kind=="control_result") {if(!d["id"].is<uint32_t>()||!d["success"].is<bool>())return false;musicUi.controlResult(d["id"],d["success"],millis());return true;}
   if(kind=="idle") {track.clear();lyrics.clear();musicUi.drawIdle("等待电脑播放音乐","USB 已连接");return true;}
   String id=d["track_id"] | "";
   if(kind=="track") {
@@ -253,6 +266,7 @@ void printUsbAppStatus() {
   JsonDocument d;d["app"]=currentAppName();d["rendering"]="S3";
   d["track_active"]=track.active;d["title"]=track.title;d["lyrics_count"]=lyrics.count();
   d["position_ms"]=track.estimatedPosition(millis());d["lyric_index"]=lyrics.indexAt(track.estimatedPosition(millis()));
+  d["lyric_text"]=lyrics.textAt(lyrics.indexAt(track.estimatedPosition(millis())));
   d["heap"]=ESP.getFreeHeap();d["psram_free"]=ESP.getFreePsram();
   hubConsole().print("USB_STATUS ");serializeJson(d,hubConsole());hubConsole().println();
 }
@@ -291,21 +305,7 @@ void loop() {
   }
   now=millis(); // HTTP requests can take time; avoid stale timestamp underflow.
   if (activeApp==AppId::Music) {
-    static uint32_t renderedRevision=UINT32_MAX;
-    static int renderedIndex=-2;
-    if(track.active) {
-      int index=lyrics.indexAt(track.estimatedPosition(now));
-      if(renderedRevision!=lyrics.revision() || renderedIndex!=index) {
-        renderedRevision=lyrics.revision();renderedIndex=index;
-        musicUi.drawLyricsWindow(lyrics.textAt(index-1),lyrics.textAt(index),lyrics.textAt(index+1),lyrics.count()>0,track.playing,now);
-      }
-    }
-    static uint32_t lastProgress=0;
-    if (track.active && now-lastProgress>=200) {
-      lastProgress=now;
-      musicUi.drawProgress(track.estimatedPosition(now),track.durationMs);
-    }
-    marquee.setPlaying(track.active && track.playing,now); marquee.tick(now);
+    musicUi.tick(track,lyrics,now);
     if (track.active && now-track.lastPlaybackMs>=config::kIdleTimeoutMs) {
       track.clear();lyrics.clear();musicUi.drawIdle("等待播放",wifi ? WiFi.localIP().toString() : String());
     }

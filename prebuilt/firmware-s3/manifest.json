@@ -4,7 +4,7 @@
   "boot_flash_mode": "dio",
   "runtime_memory_type": "qio_opi",
   "psram": "8MB OPI",
-  "version": "1.4.6-video-easter-egg",
+  "version": "1.4.7-music-dashboard",
   "lcd_spi_hz": 40000000,
   "pins": {
     "kCs": 10,
@@ -41,8 +41,8 @@
     {
       "name": "firmware.bin",
       "address": 65536,
-      "bytes": 4848992,
-      "sha256": "7921e72d03256fae548479660dd5ed2b081cfdbe8f58ce34f2c27a0fb3a24c23"
+      "bytes": 4854928,
+      "sha256": "42b05a97529ba8fb9f0c9accdead7a4f6b76d71143c901fcc9a376f1ff9074ab"
     },
     {
       "name": "video.bin",

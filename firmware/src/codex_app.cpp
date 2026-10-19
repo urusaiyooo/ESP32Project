@@ -73,6 +73,7 @@ void serialTick(uint32_t now) {
         hubConsole().println(isCalibrated()?"TOUCH_CALIBRATED":"TOUCH_ERROR save_failed");continue;
       }
       if(serialLine=="HUB_TOUCH_STATUS") {printShellTouchStatus();serialLine="";continue;}
+      if(serialLine=="HUB_MUSIC_STATUS") {printMusicStatus();serialLine="";continue;}
       if(serialLine=="HUB_VIDEO_STATUS") {VideoApp::printStatus();serialLine="";continue;}
       if(serialLine.startsWith("HUB_SHELL_GESTURE ")) {
         int x0,y0,x1,y1;

@@ -8,4 +8,5 @@ void requestAppByName(const String& name);
 const char* currentAppName();
 
 void printShellTouchStatus();
+void printMusicStatus();
 void injectShellGesture(int x0,int y0,int x1,int y1);

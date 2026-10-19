@@ -2,6 +2,8 @@
 #include <Arduino.h>
 
 namespace ClockApp {
+struct MusicInfo { bool quotaFresh=false; float remaining=0; bool online=false; bool busy=false; };
+MusicInfo musicInfo();
 void begin();
 void enter();
 void leave();

@@ -23,6 +23,8 @@ build/
 runtime/
 runtime-clock/
 backups/
+cache/
+**/cache/
 auths/
 auth.json
 config.json

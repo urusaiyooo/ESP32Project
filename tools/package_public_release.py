@@ -3,7 +3,7 @@ import argparse,hashlib,json,zipfile,re
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
-SKIP_DIRS={'.git','.pio','.venv','bin','obj','__pycache__','payload','runtime','runtime-clock','backups','release','dist','build'}
+SKIP_DIRS={'.git','.pio','.venv','bin','obj','__pycache__','payload','runtime','runtime-clock','backups','cache','release','dist','build'}
 SKIP_SUFFIX={'.pyc','.log','.pdb','.exe','.zip','.db','.sqlite','.spec'}
 PRIVATE_NAMES={'auth.json','config.json','.env','worker.pid'}
 

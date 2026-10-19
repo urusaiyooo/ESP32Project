@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Version>1.4.7</Version>
     <DebugType>none</DebugType><DebugSymbols>false</DebugSymbols>
     <PathMap>$(MSBuildProjectDirectory)=.</PathMap>
     <OutputType>Exe</OutputType>

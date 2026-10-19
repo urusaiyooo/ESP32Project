@@ -52,12 +52,14 @@ CoverRenderResult CoverRenderer::render(const uint8_t* data, size_t length,
   }
   // LovyanGFX's embedded decoder supports baseline DCT JPEG (SOF0).
   if (sofMarker != 0xC0) return CoverRenderResult::UnsupportedJpeg;
-  if (width != ui_config::kCoverWidth || height != ui_config::kCoverHeight) {
+  if (width>4096 || height>4096) {
     return CoverRenderResult::WrongDimensions;
   }
   display_.setTextDatum(lgfx::textdatum_t::top_left);
-  if (!display_.drawJpg(data, static_cast<uint32_t>(length), 0, 0,
-                        ui_config::kCoverWidth, ui_config::kCoverHeight)) {
+  float scale=min(float(ui_config::kCoverWidth)/width,float(ui_config::kCoverHeight)/height);
+  display_.fillRect(ui_config::kCoverX,ui_config::kCoverY,ui_config::kCoverWidth,ui_config::kCoverHeight,ui_config::kCoverBackground);
+  if (!display_.drawJpg(data, static_cast<uint32_t>(length),ui_config::kCoverX+(ui_config::kCoverWidth-int(width*scale))/2,ui_config::kCoverY+(ui_config::kCoverHeight-int(height*scale))/2,
+                        ui_config::kCoverWidth, ui_config::kCoverHeight,0,0,scale,scale)) {
     return CoverRenderResult::DecodeFailed;
   }
   return CoverRenderResult::Ok;

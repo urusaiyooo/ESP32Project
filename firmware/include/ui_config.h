@@ -2,16 +2,18 @@
 #include <stdint.h>
 
 namespace ui_config {
-constexpr uint16_t kBackground = 0x0861;
-constexpr uint16_t kCoverBackground = 0x1126;
-constexpr uint16_t kText = 0xFFFF;
-constexpr uint16_t kMuted = 0x9CD3;
-constexpr uint16_t kAccent = 0x5E9B;
-constexpr uint16_t kProgressTrack = 0x2945;
+constexpr uint16_t kBackground = 0xFFFF;
+constexpr uint16_t kCoverBackground = 0xEEDC;
+constexpr uint16_t kText = 0x18C5;
+constexpr uint16_t kMuted = 0x8410;
+constexpr uint16_t kAccent = 0x43D8;
+constexpr uint16_t kProgressTrack = 0xE71C;
 constexpr int kMargin = 16;
 constexpr int kTextWidth = 448;
-constexpr int kCoverWidth = 160;
-constexpr int kCoverHeight = 160;
+constexpr int kCoverX = 10;
+constexpr int kCoverY = 36;
+constexpr int kCoverWidth = 128;
+constexpr int kCoverHeight = 128;
 constexpr int kMetadataX = 176;
 constexpr int kMetadataWidth = 288;
 constexpr int kHeaderTitleY = 10;

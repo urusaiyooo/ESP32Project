@@ -24,7 +24,7 @@ bool line(const String& input) {
     if(!doc["length"].is<uint32_t>() || !doc["crc"].is<uint32_t>()) {fail(request);return true;}
     expected=doc["length"].as<uint32_t>();
     size_t limit=kind=="cover" ? 512*1024 : kind=="lyrics" ? 65536 :
-        kind=="track" ? 16384 : kind=="dashboard" ? 8192 : kind=="playback" || kind=="idle" ? 1024 : 0;
+        kind=="track" ? 16384 : kind=="dashboard" ? 8192 : kind=="playback" || kind=="idle" || kind=="control_result" ? 1024 : 0;
     if(!limit || !expected || expected>limit) {fail(request);return true;}
     buffer=static_cast<uint8_t*>(heap_caps_malloc(expected+1,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
     if(!buffer) {fail(request);return true;}

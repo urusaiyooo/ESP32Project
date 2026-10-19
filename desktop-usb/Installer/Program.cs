@@ -27,7 +27,7 @@ internal static class Program
         if(args.Contains("--quiet")) {Install();return 0;}
         ApplicationConfiguration.Initialize();
         var form=new Form{Text="DeskHub USB 一键安装",ClientSize=new Size(500,255),StartPosition=FormStartPosition.CenterScreen,FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false};
-        var label=new Label{AutoSize=false,Location=new Point(24,22),Size=new Size(450,112),Text="Windows 10/11（64 位）\n一次安装，登录后自动后台运行，USB 自动连接。\n音乐、天气、WorkBuddy 积分与 Codex 额度/状态由后台采集；显示计算在 S3。\n不需要另装 Python 或 .NET。Codex 账号首次使用需要登录。"};
+        var label=new Label{AutoSize=false,Location=new Point(24,22),Size=new Size(450,125),Text="Windows 10/11（64 位）\n一次安装，登录后自动后台运行，USB 自动连接。\n音乐、天气、积分与 Codex 额度/状态由后台采集；显示计算在 S3。\n封面、歌名、歌手、歌词自动缓存，重复播放优先本地读取。\n不需要另装 Python 或 .NET。Codex 账号首次使用需要登录。"};
         var install=new Button{Text="安装并开机自动运行",Location=new Point(24,160),Size=new Size(265,42)};
         var login=new Button{Text="登录 Codex",Location=new Point(305,160),Size=new Size(165,42),Enabled=File.Exists(Path.Combine(Root,"codex","codex.exe"))};
         install.Click+=async(_,_)=>
@@ -55,7 +55,7 @@ internal static class Program
     }
     private static void Install()
     {
-        Directory.CreateDirectory(Root);StopWorker();
+        Directory.CreateDirectory(Root);Directory.CreateDirectory(Path.Combine(Root,"cache","music","v1"));StopWorker();
         using var stream=Assembly.GetExecutingAssembly().GetManifestResourceStream("DeskHub.payload.zip")!;
         using var archive=new ZipArchive(stream);
         string prefix=Path.GetFullPath(Root)+Path.DirectorySeparatorChar;
@@ -81,12 +81,12 @@ internal static class Program
         using(var key=Registry.CurrentUser.CreateSubKey(RunKey))key.SetValue("DeskHub",Command);
         using(var key=Registry.CurrentUser.CreateSubKey(UninstallKey))
         {
-            key.SetValue("DisplayName","DeskHub USB Companion");key.SetValue("DisplayVersion","1.4.4");
+            key.SetValue("DisplayName","DeskHub USB Companion");key.SetValue("DisplayVersion","1.4.7");
             key.SetValue("Publisher","Local DeskHub Project");key.SetValue("InstallLocation",Root);
             key.SetValue("UninstallString",$"\"{savedSetup}\" --uninstall");key.SetValue("NoModify",1);key.SetValue("NoRepair",1);
         }
         Process.Start(new ProcessStartInfo(WorkerExe,$"\"{WorkerScript}\""){UseShellExecute=false,CreateNoWindow=true,WorkingDirectory=Root});
-        File.WriteAllText(Path.Combine(Root,"install-result.txt"),"DeskHub 1.4.4 installed. Per-user logon startup enabled.\n");
+        File.WriteAllText(Path.Combine(Root,"install-result.txt"),"DeskHub 1.4.7 installed. Per-user logon startup enabled. Music cache: cache/music/v1\n");
     }
     private static void Remove()
     {

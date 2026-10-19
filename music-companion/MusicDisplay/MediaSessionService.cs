@@ -30,6 +30,19 @@ public sealed class MediaSessionService : IAsyncDisposable
 
     public event EventHandler<MediaSnapshot?>? SnapshotChanged;
     public MediaSnapshot? LatestSnapshot { get; private set; }
+    public async Task<bool> ControlAsync(string command,CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        var session=SelectMusicSession();if(session is null)return false;
+        bool result=command switch {
+            "previous"=>await session.TrySkipPreviousAsync(),
+            "next"=>await session.TrySkipNextAsync(),
+            "play"=>await session.TryPlayAsync(),
+            "pause"=>await session.TryPauseAsync(),
+            _=>false
+        };
+        await RefreshAsync("control",token);return result;
+    }
 
     public static async Task<MediaSessionService> CreateAsync(CancellationToken cancellationToken)
     {
@@ -125,6 +138,13 @@ public sealed class MediaSessionService : IAsyncDisposable
             var timeline = session.GetTimelineProperties();
             var duration = timeline.EndTime > timeline.StartTime
                 ? timeline.EndTime - timeline.StartTime : TimeSpan.Zero;
+            bool playing=playback.PlaybackStatus==GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+            var position=timeline.Position;
+            var age=DateTimeOffset.UtcNow-timeline.LastUpdatedTime;
+            // Position is the value at LastUpdatedTime, not a ticking live clock.
+            if(playing&&age>=TimeSpan.Zero&&age<TimeSpan.FromDays(1))position+=age;
+            if(duration>TimeSpan.Zero&&position>duration)position=duration;
+            if(position<TimeSpan.Zero)position=TimeSpan.Zero;
             var snapshot = new MediaSnapshot(
                 session.SourceAppUserModelId ?? string.Empty,
                 TrackIdentity.Create(properties.Title ?? string.Empty,
@@ -132,9 +152,9 @@ public sealed class MediaSessionService : IAsyncDisposable
                 properties.Title ?? string.Empty,
                 properties.Artist ?? string.Empty,
                 properties.AlbumTitle ?? string.Empty,
-                timeline.Position,
+                position,
                 duration,
-                playback.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing,
+                playing,
                 properties.Thumbnail);
             Publish(snapshot, reason);
         }

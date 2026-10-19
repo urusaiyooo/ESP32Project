@@ -17,6 +17,7 @@ class LyricsEngine {
   uint32_t revision() const { return revision_; }
   int indexAt(uint32_t positionMs) const;
   const String& textAt(int index) const;
+  uint32_t timestampAt(int index) const {return index>=0&&size_t(index)<lines_.size()?lines_[index].timestampMs:0;}
 
  private:
   static bool parseTimestamp(const String& token, uint32_t& timestampMs);
